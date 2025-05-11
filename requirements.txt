@@ -1,0 +1,8 @@
+tkcalendar
+pillow
+matplotlib
+numpy
+python-dateutil
+babel
+transformers
+torch
