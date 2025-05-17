@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-*.pyc
+.pyc
 
 # C extensions
 *.so
@@ -151,3 +151,5 @@ secrets.py
 *.credential*
 config.ini # if it contains sensitive data, otherwise check content
 credentials/ 
+
+*.json
