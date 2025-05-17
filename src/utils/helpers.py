@@ -74,7 +74,7 @@ def calculate_workload_hours(assignments, start_date=None, end_date=None):
         end_date (datetime, optional): End of period to calculate. Defaults to 7 days from start_date.
     
     Returns:
-        dict: Dictionary containing total hours, breakdown by subject, and count of assignments.
+        dict: Dictionary containing total hours, breakdown by class, and count of assignments.
     """
     if start_date is None:
         start_date = datetime.now()
@@ -84,7 +84,7 @@ def calculate_workload_hours(assignments, start_date=None, end_date=None):
     # Ensure start_date and end_date are datetime objects for comparison
     # (though they usually will be if coming from datetime.now() or timedelta)
     if not (isinstance(start_date, datetime) and isinstance(end_date, datetime)):
-        return {'total': 0, 'by_subject': {}, 'assignments_count': 0}
+        return {'total': 0, 'by_class': {}, 'assignments_count': 0}
 
 
     filtered_assignments = []
@@ -98,15 +98,15 @@ def calculate_workload_hours(assignments, start_date=None, end_date=None):
     
     total_hours = sum(a.get('difficulty', 0) * HOURS_PER_DIFFICULTY_POINT for a in filtered_assignments)
     
-    subject_hours = {}
+    class_hours = {}
     for assignment in filtered_assignments:
-        subject = assignment.get('class', 'Uncategorized') # Use .get() for safety
+        class_name = assignment.get('class', 'Uncategorized')
         hours = assignment.get('difficulty', 0) * HOURS_PER_DIFFICULTY_POINT
-        subject_hours[subject] = subject_hours.get(subject, 0) + hours
+        class_hours[class_name] = class_hours.get(class_name, 0) + hours
     
     return {
         'total': total_hours,
-        'by_subject': subject_hours,
+        'by_class': class_hours,
         'assignments_count': len(filtered_assignments)
     }
 
@@ -127,24 +127,37 @@ def get_priority_color(priority):
         'Low': '#32CD32',     # LimeGreen
     }.get(str(priority).capitalize(), '#A9A9A9')  # DarkGray for unknown or default
 
-def get_subject_emoji(subject):
-    """
-    Get an emoji representing a subject
+ALLOWED_PRIORITIES = ["Low", "Medium", "High", "Urgent"]
+ALLOWED_DIFFICULTY = list(range(1, 11)) # Changed to 1-10
+
+def get_class_emoji(class_name):
+    """Get an emoji representing a class."""
+    if not isinstance(class_name, str):
+        return '📓' # Default for non-string input
     
-    Args:
-        subject (str): Subject name
-    
-    Returns:
-        str: Emoji representing the subject
-    """
-    return {
-        'Math': '🔢',
-        'Science': '🔬',
-        'History': '📚',
-        'English': '📝',
-        'Computer Science': '💻',
-        'Foreign Language': '🌎',
-        'Art': '🎨',
-        'Music': '🎵',
-        'Physical Education': '⚽',
-    }.get(subject, '📓')  # Default emoji for unknown subjects
+    class_name_lower = class_name.lower()
+    # Simple mapping for common classes
+    emoji_map = {
+        'math': '🧮',
+        'mathematics': '🧮',
+        'science': '🔬',
+        'physics': '⚛️',
+        'chemistry': '🧪',
+        'biology': '🧬',
+        'history': '📜',
+        'english': '📚',
+        'literature': '📖',
+        'language': '🗣️',
+        'art': '🎨',
+        'music': '🎵',
+        'computer science': '💻',
+        'programming': '💻',
+        'geography': '🗺️',
+        'philosophy': '🤔',
+        # Add more mappings as desired
+    }
+    # Try to find a match for parts of the class_name as well
+    for keyword, emoji in emoji_map.items():
+        if keyword in class_name_lower:
+            return emoji
+    return '📓'  # Default emoji for unknown classes

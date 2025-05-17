@@ -5,7 +5,7 @@ from .helpers import (
     format_date, 
     calculate_workload_hours,
     get_priority_color,
-    get_subject_emoji
+    get_class_emoji
 )
 
 __all__ = [
@@ -13,5 +13,5 @@ __all__ = [
     'format_date', 
     'calculate_workload_hours',
     'get_priority_color',
-    'get_subject_emoji'
+    'get_class_emoji'
 ]

@@ -2,7 +2,7 @@
 
 from .data_handler import DataHandler
 from .study_tips import StudyTipsGenerator
-from .chatbot import HomeworkChatbot
+from .chatbot import Chatbot
 from .assignment_manager import AssignmentManager
 
-__all__ = ['DataHandler', 'StudyTipsGenerator', 'HomeworkChatbot', 'AssignmentManager']
+__all__ = ['DataHandler', 'StudyTipsGenerator', 'Chatbot', 'AssignmentManager']

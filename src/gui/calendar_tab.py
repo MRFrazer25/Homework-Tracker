@@ -1,175 +1,240 @@
 import tkinter as tk
 from tkinter import ttk
-from tkcalendar import Calendar # Ensure tkcalendar is installed
-from datetime import datetime, timedelta
-# from ...utils.helpers import format_date # If needed for displaying event details
+# from tkcalendar import Calendar # No longer using tkcalendar
+import ttkbootstrap as ttkb # For DateEntry and other ttkbootstrap widgets
+from ttkbootstrap.dialogs import DatePickerDialog # Though DateEntry uses it internally
+from datetime import datetime, date # Ensure date is imported
+
+# # from ...utils.helpers import format_date # If needed for displaying event details # Removed
 
 class CalendarTab(ttk.Frame):
     """
-    Tab displaying a calendar view with assignments marked on due dates.
-    
-    Initializes the Calendar tab.
-    Args:
-        parent: The parent widget (notebook).
-        assignments_data_provider: Callable to get the list of assignments.
-        app_callbacks: Dictionary of callbacks to the main application.
+    Tab displaying a DateEntry to select a date and a list of assignments for that date.
     """
     def __init__(self, parent, assignments_data_provider, app_callbacks):
         super().__init__(parent)
         self.assignments_provider = assignments_data_provider
-        self.app_callbacks = app_callbacks # e.g., for showing assignment details on date select
-        
-        self.calendar = None
-        self.selected_date_label = None
-        self.assignments_on_date_listbox = None # Using tk.Listbox for simplicity
+        self.app_callbacks = app_callbacks
+        self.app_instance = self.app_callbacks['get_master_app']()
+        self.selected_date = date.today() # Store the currently selected date
 
-        self.setup_ui()
-        self.mark_due_dates()
+        self.date_format_str = "%Y-%m-%d" # Define date format for parsing and display
 
-    def setup_ui(self):
-        """Creates and lays out the UI elements for the Calendar tab."""
-        # Calendar widget from tkcalendar library
-        self.calendar = Calendar(
-            self, 
-            selectmode='day', 
-            date_pattern='yyyy-mm-dd', # Format for get_date()
-            # Default year/month/day is current, which is usually desired.
-            # Example: Set specific start date
-            # year=2023, month=1, day=1 
+        self._setup_ui()
+        self.on_theme_changed(self.app_instance.is_dark_theme()) # Apply initial theme
+        self.refresh_data()
+
+    def _setup_ui(self):
+        """Sets up the UI elements for the Calendar tab."""
+        self.main_frame = ttk.Frame(self, padding=10)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        self.main_frame.update_idletasks() # Explicitly update main_frame's geometry
+
+        # DateEntry for date selection
+        self.date_entry = ttkb.DateEntry(
+            self.main_frame,
+            dateformat=self.date_format_str,
+            firstweekday=0, # Monday: 0=Monday, ..., 6=Sunday (DateEntry default is 6)
+            startdate=self.selected_date
         )
-        self.calendar.pack(pady=10, padx=10, fill="x")
-        self.calendar.bind("<<CalendarSelected>>", self.on_date_selected) # Event when a date is clicked
+        self.date_entry.pack(pady=(0, 10), fill=tk.X, padx=0)
 
-        # Frame for displaying information about the selected date
-        info_frame = ttk.LabelFrame(self, text="Assignments on Selected Date")
-        info_frame.pack(pady=10, padx=10, fill="both", expand=True)
+        self.date_entry.entry.bind("<<DateEntrySelected>>", self.on_date_selected)
+        self.date_entry.entry.bind("<FocusOut>", self.on_date_selected)
+        self.date_entry.entry.bind("<Return>", self.on_date_selected)
 
-        self.selected_date_label = ttk.Label(info_frame, text="Select a date to see assignments.")
-        self.selected_date_label.pack(pady=5)
+        # Frame for displaying events for the selected date
+        self.info_frame = ttk.LabelFrame(self.main_frame, text="Assignments for Selected Date", padding=10)
+        self.info_frame.pack(pady=10, padx=0, fill="both", expand=True)
+
+        self.event_listbox = tk.Listbox(
+            self.info_frame,
+            height=10,
+            # Font and colors will be set in on_theme_changed
+        )
+        self.event_listbox_scrollbar = ttk.Scrollbar(
+            self.info_frame,
+            orient=tk.VERTICAL,
+            command=self.event_listbox.yview
+        )
+        self.event_listbox.configure(yscrollcommand=self.event_listbox_scrollbar.set)
+        self.event_listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.event_listbox.pack(side=tk.LEFT, fill="both", expand=True)
         
-        # Listbox to show assignments for the selected date
-        self.assignments_on_date_listbox = tk.Listbox(info_frame, height=10)
-        self.assignments_on_date_listbox.pack(pady=5, padx=5, fill="both", expand=True)
-        # Future enhancement: Bind double-click on listbox item to show details or edit.
+        self.error_label = None # Placeholder for other errors if needed
 
-    def mark_due_dates(self):
-        """Marks assignment due dates on the calendar."""
-        if not self.calendar:
-            return
-            
-        # Clear all previously marked events to prevent duplicates on refresh
-        self.calendar.calevent_remove('all') 
-
-        assignments = self.assignments_provider()
-        for assignment in assignments:
-            if not assignment.get('completed', False) and assignment.get('due_date'):
-                due_date = assignment['due_date']
-                # Ensure due_date is a datetime.date or datetime.datetime object
-                if not hasattr(due_date, 'year'): # Simple check if it's not date/datetime like
-                    try: # Attempt to parse if it's a string
-                        due_date = datetime.strptime(str(due_date), '%Y-%m-%d %H:%M:%S').date()
-                    except ValueError:
-                        try:
-                            due_date = datetime.strptime(str(due_date), '%Y-%m-%d').date()
-                        except ValueError:
-                            print(f"Warning: Could not parse due_date for assignment '{assignment.get('name')}': {due_date}")
-                            continue # Skip marking this assignment
-                
-                event_text = f"{assignment['name']} ({assignment.get('priority', 'N/A')})"
-                # Use priority as a tag for styling; convert to lowercase for consistency
-                tag = str(assignment.get('priority', 'default')).lower()
-                self.calendar.calevent_create(due_date, event_text, tags=tag)
-        
-        # Configure styles for event tags (priority based) - Updated vibrant colors
-        self.calendar.tag_config('high', background='#FF6347', foreground='white') # Tomato, white text
-        self.calendar.tag_config('medium', background='#FFA500', foreground='black') # Orange, black text
-        self.calendar.tag_config('low', background='#32CD32', foreground='black')    # LimeGreen, black text
-        self.calendar.tag_config('default', background='#778899', foreground='white') # LightSlateGray, white text
 
     def on_date_selected(self, event=None):
-        """Handles the event when a date is selected on the calendar."""
-        if not self.calendar: # Should not happen if UI is set up
-            return
-
+        """
+        Called when a date is selected in the DateEntry or entry loses focus/enter pressed.
+        Updates the event listbox with assignments for the new date.
+        """
         try:
-            selected_date_str = self.calendar.get_date()
-            # Convert string date from calendar to a datetime.date object
-            selected_date_obj = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
-        except Exception as e:
-            print(f"Error parsing selected date: {e}")
-            self.selected_date_label.config(text="Error: Could not parse selected date.")
-            self.assignments_on_date_listbox.delete(0, tk.END)
+            date_str = self.date_entry.entry.get()
+            if not date_str:
+                self.selected_date = date.today() 
+            else:
+                self.selected_date = datetime.strptime(date_str, self.date_format_str).date()
+            
+        except ValueError:
+            print(f"Invalid date format in DateEntry: {self.date_entry.entry.get()}. Using last valid date: {self.selected_date}")
+            # Update entry to show the last valid date to prevent user confusion
+            if self.selected_date:
+                self.date_entry.entry.delete(0, tk.END)
+                self.date_entry.entry.insert(0, self.selected_date.strftime(self.date_format_str))
+            self._update_event_list_for_selected_date() 
             return
-        
-        self.selected_date_label.config(text=f"Assignments due on: {selected_date_obj.strftime('%A, %B %d, %Y')}")
-        
-        self.assignments_on_date_listbox.delete(0, tk.END) # Clear previous entries
-        
+
+        if hasattr(self.info_frame, 'config'): 
+             self.info_frame.config(text=f"Assignments for {self.selected_date.strftime('%A, %B %d, %Y')}")
+        self._update_event_list_for_selected_date()
+
+    def _update_event_list_for_selected_date(self):
+        """Updates the event listbox with assignments due on the self.selected_date."""
+        if not hasattr(self, 'event_listbox') or not self.event_listbox.winfo_exists():
+            return 
+
+        self.event_listbox.delete(0, tk.END)
         assignments = self.assignments_provider()
-        found_assignments_on_date = False
-        for assignment in assignments:
-            assignment_due_date = assignment.get('due_date')
-            if not assignment_due_date:
-                continue
-
-            # Ensure assignment_due_date is a date object for comparison
-            if hasattr(assignment_due_date, 'date'): # If it's a datetime object
-                compare_date = assignment_due_date.date()
-            elif isinstance(assignment_due_date, datetime.date): # If it's already a date object
-                compare_date = assignment_due_date
-            else: # Try to parse if it's a string or other type
-                try:
-                    compare_date = datetime.strptime(str(assignment_due_date), '%Y-%m-%d %H:%M:%S').date()
-                except ValueError:
-                    try:
-                        compare_date = datetime.strptime(str(assignment_due_date), '%Y-%m-%d').date()
-                    except ValueError:
-                        continue # Skip if date is unparseable
-
-            if compare_date == selected_date_obj:
-                display_text = f"{assignment.get('name', 'N/A')} ({assignment.get('class', 'N/A')}) - P: {assignment.get('priority', 'N/A')}"
-                if assignment.get('completed', False):
-                    display_text += " (Completed)"
-                self.assignments_on_date_listbox.insert(tk.END, display_text)
-                found_assignments_on_date = True
         
-        if not found_assignments_on_date:
-            self.assignments_on_date_listbox.insert(tk.END, "No assignments due on this date.")
+        found_assignments = False
+        if assignments and self.selected_date:
+            for assignment in assignments:
+                try:
+                    due_date_val = assignment.get('due_date')
+                    if not due_date_val:
+                        continue
+
+                    if isinstance(due_date_val, datetime):
+                        due_date = due_date_val.date()
+                    elif isinstance(due_date_val, date):
+                        due_date = due_date_val
+                    elif isinstance(due_date_val, str):
+                        due_date = datetime.strptime(due_date_val, '%Y-%m-%d').date()
+                    else:
+                        print(f"Warning: Due date for assignment '{assignment.get('title', 'Unknown')}' has an unexpected type: {type(due_date_val)}")
+                        continue
+
+                    if due_date == self.selected_date:
+                        status = "Complete" if assignment.get('completed', False) else "Incomplete"
+                        assignment_name = assignment.get('name', 'N/A') 
+                        priority_val = assignment.get('priority', 'N/A')
+                        class_name = assignment.get('class', 'N/A')
+                        display_text = (
+                            f"{assignment_name} (Class: {class_name}) - Priority: {priority_val} "
+                            f"- Status: {status}"
+                        )
+                        self.event_listbox.insert(tk.END, display_text)
+                        found_assignments = True
+                except ValueError:
+                    print(f"Warning: Could not parse due_date string '{due_date_val}' for assignment '{assignment.get('title', 'Unknown')}'. Ensure format is YYYY-MM-DD.")
+                    continue 
+        
+        if not found_assignments:
+            self.event_listbox.insert(tk.END, "No assignments due on this date.")
 
     def refresh_data(self):
-        """Reloads and re-marks assignments on the calendar and updates selected date info."""
-        self.mark_due_dates()
-        # Re-trigger on_date_selected to update the listbox for the currently selected date (if any)
-        # This ensures the listbox reflects changes even if the selected date itself hasn't changed.
-        if self.calendar and self.calendar.selection_get() is not None: # Check if a date is selected
-            self.on_date_selected() 
-        else: # If no date is selected, clear the listbox and reset label
-            if self.selected_date_label:
-                self.selected_date_label.config(text="Select a date to see assignments.")
-            if self.assignments_on_date_listbox:
-                 self.assignments_on_date_listbox.delete(0, tk.END)
+        """Refreshes the displayed assignment data for the currently selected date."""
+        self.on_date_selected()
+
+    def on_theme_changed(self, is_dark_theme):
+        """Handles theme changes for the Calendar tab."""
+        if not hasattr(self, 'main_frame') or not self.main_frame.winfo_exists():
+            return
+
+        bs_colors = self.app_instance.root.style.colors
+        
+        list_bg = bs_colors.get('inputbg')
+        if list_bg is None: list_bg = '#3C3C3C' if is_dark_theme else 'white'
+        
+        list_fg = bs_colors.get('inputfg')
+        if list_fg is None: list_fg = 'white' if is_dark_theme else 'black'
+
+        select_bg = bs_colors.get('primary')
+        if select_bg is None: select_bg = '#0078D7'
+        
+        select_fg = bs_colors.get('selectfg') 
+        if select_fg is None: select_fg = bs_colors.get('inputfg') 
+        if select_fg is None: select_fg = 'white' if is_dark_theme else 'black'
+
+        if hasattr(self, 'event_listbox') and self.event_listbox:
+            self.event_listbox.configure(
+                background=list_bg,
+                foreground=list_fg,
+                selectbackground=select_bg,
+                selectforeground=select_fg, 
+                font=("Segoe UI", 10) 
+            )
+
+        if self.error_label and self.error_label.winfo_exists():
+            err_fg = bs_colors.get('danger') or ('#FF5555' if is_dark_theme else '#CC0000')
+            self.error_label.configure(
+                background=bs_colors.get('bg'), 
+                foreground=err_fg
+            )
+
+# if __name__ == '__main__':
+#     # Example usage for testing this tab independently
+#     # This __main__ block needs to be updated if used, as MockApp and ttkbootstrap aren't fully set up here.
+#     # For instance, ttkbootstrap.Style() would be needed for a ThemedTk equivalent.
+#     root = tk.Tk() # Basic Tk root for simple testing
+#     root.title("Calendar Tab Test")
+#     try:
+#         from ttkbootstrap import Style
+#         Style(theme='litera') # Apply a theme for ttk widgets
+#     except ImportError:
+#         print("ttkbootstrap not found for independent test styling.")
 
 
-if __name__ == '__main__':
-    # Example usage for testing this tab independently
-    root = tk.Tk()
-    root.title("Calendar Tab Test")
+#     # Sample assignments data for testing
+#     sample_assignments = [
+#         {'title': 'Math HW', 'class': 'Math', 'priority': 'High', 'due_date': datetime.now().date() + timedelta(days=2), 'completed': False},
+#         {'title': 'History Reading', 'class': 'History', 'priority': 'Medium', 'due_date': datetime.now().date() + timedelta(days=2), 'completed': False},
+#         {'title': 'Science Project', 'class': 'Science', 'priority': 'Low', 'due_date': datetime.now().date() + timedelta(days=5), 'completed': True},
+#         {'title': 'Art Sketch', 'class': 'Art', 'priority': 'DefaultTest', 'due_date': datetime.now().date() + timedelta(days=1), 'completed': False},
+#     ]
 
-    # Sample assignments data for testing
-    # datetime and timedelta are imported at the top of the file
-    sample_assignments = [
-        {'name': 'Math HW', 'class': 'Math', 'priority': 'High', 'due_date': datetime.now() + timedelta(days=2), 'completed': False},
-        {'name': 'History Reading', 'class': 'History', 'priority': 'Medium', 'due_date': datetime.now() + timedelta(days=2), 'completed': False},
-        {'name': 'Science Project', 'class': 'Science', 'priority': 'Low', 'due_date': datetime.now() + timedelta(days=5), 'completed': True},
-        {'name': 'Art Sketch', 'class': 'Art', 'priority': 'DefaultTest', 'due_date': datetime.now() + timedelta(days=1), 'completed': False}, # Test default tag
-    ]
-    # Removed redundant import of datetime, timedelta from here.
+#     def get_sample_assignments():
+#         return sample_assignments
 
-    def get_sample_assignments():
-        return sample_assignments
+#     class MockAppForCalendar: # Simpler mock, focusing on what CalendarTab needs
+#         def __init__(self, tk_root):
+#             self.root = tk_root
+#             self._is_dark = False
+#             if hasattr(tk_root, 'style'): # If using ttkbootstrap.Window
+#                 self._is_dark = "dark" in tk_root.style.theme_use().lower()
 
-    app_cbs = {} 
+#         def is_dark_theme(self):
+#             if hasattr(self.root, 'style'):
+#                  self._is_dark = "dark" in self.root.style.theme_use().lower()
+#             return self._is_dark
+        
+#         def get_master_app(self): 
+#             return self
+
+#     mock_app_instance = MockAppForCalendar(root)
+#     app_cbs = { 
+#         'get_master_app': mock_app_instance.get_master_app
+#     }
     
-    tab = CalendarTab(root, get_sample_assignments, app_cbs)
-    tab.pack(expand=True, fill='both')
-    root.mainloop()
+#     tab = CalendarTab(root, get_sample_assignments, app_cbs)
+#     tab.pack(expand=True, fill='both')
+    
+#     # Example: Add a button to toggle theme for testing (if root is a ttkbootstrap.Window)
+#     if hasattr(root, "style"):
+#         def toggle_theme_test():
+#             current_theme = root.style.theme_use()
+#             if "dark" in current_theme or "cyborg" in current_theme : # Example dark themes
+#                 root.style.theme_use("litera")
+#             else:
+#                 root.style.theme_use("cyborg")
+#             # Manually trigger on_theme_changed for the tab after theme switch
+#             if hasattr(tab, 'on_theme_changed') and hasattr(mock_app_instance, 'is_dark_theme'):
+#                 tab.on_theme_changed(mock_app_instance.is_dark_theme())
+#             tab.refresh_data()
+
+
+#         theme_button = ttk.Button(root, text="Toggle Theme (Test)", command=toggle_theme_test)
+#         theme_button.pack(pady=5)
+
+#     root.mainloop()

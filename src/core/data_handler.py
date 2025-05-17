@@ -31,7 +31,7 @@ class DataHandler:
                             try:
                                 assignment['due_date'] = datetime.strptime(assignment['due_date'], '%Y-%m-%d %H:%M')
                             except ValueError:
-                                print(f"Warning: Could not parse due_date '{assignment['due_date']}' for assignment '{assignment.get('name')}'. Setting to None.")
+                                # print(f"Warning: Could not parse due_date '{assignment['due_date']}' for assignment '{assignment.get('name')}'. Setting to None.")
                                 assignment['due_date'] = None 
                     if 'date_added' in assignment and isinstance(assignment['date_added'], str):
                         try:
@@ -40,16 +40,24 @@ class DataHandler:
                              try: # Fallback if microseconds are not present
                                 assignment['date_added'] = datetime.strptime(assignment['date_added'], '%Y-%m-%d %H:%M:%S')
                              except ValueError:
-                                print(f"Warning: Could not parse date_added '{assignment['date_added']}' for assignment '{assignment.get('name')}'. Setting to None.")
+                                # print(f"Warning: Could not parse date_added '{assignment['date_added']}' for assignment '{assignment.get('name')}'. Setting to None.")
                                 assignment['date_added'] = None
                 return assignments
         except FileNotFoundError:
             return [] # Return empty list if file does not exist
         except json.JSONDecodeError as e:
-            print(f"Error decoding JSON from assignments file: {e}")
+            # print(f"Error decoding JSON from assignments file: {e}")
+            # Backup corrupted file
+            try:
+                corrupted_backup_path = self.assignments_file.with_suffix(f'.json.corrupted.{datetime.now().strftime("%Y%m%d%H%M%S")}')
+                self.assignments_file.rename(corrupted_backup_path)
+                # print(f"Backed up corrupted assignments file to: {corrupted_backup_path}")
+            except Exception as backup_e:
+                # print(f"Could not back up corrupted assignments file: {backup_e}")
+                pass # Silently pass backup error, main error is decode error
             return [] # Return empty list if JSON is corrupted
         except Exception as e:
-            print(f"Error loading assignments: {e}")
+            # print(f"Error loading assignments: {e}")
             return [] # General catch-all
     
     def save_assignments(self, assignments):
@@ -73,7 +81,7 @@ class DataHandler:
                 json.dump(assignments_to_save, f, indent=2)
             return True
         except Exception as e:
-            print(f"Error saving assignments: {e}")
+            # print(f"Error saving assignments: {e}")
             return False
     
     def get_assignment_categories(self):
@@ -89,20 +97,17 @@ class DataHandler:
             'Other'
         ]
     
-    def get_subject_list(self):
-        """Get list of available subjects"""
-        return [
-            'Math',
-            'Science',
-            'History',
-            'English',
-            'Computer Science',
-            'Foreign Language',
-            'Art',
-            'Music',
-            'Physical Education',
-            'Other'
-        ]
+    def get_class_list(self):
+        """Get list of available classes."""
+        assignments = self.load_assignments()
+        # Use 'class' key, fall back to 'Uncategorized' if missing or empty
+        classes = set(
+            assignment.get('class', 'Uncategorized') or 'Uncategorized' 
+            for assignment in assignments
+        )
+        # Return sorted list, perhaps with 'Uncategorized' last or first if desired
+        sorted_classes = sorted(list(classes), key=lambda x: (x == 'Uncategorized', x.lower()))
+        return sorted_classes
 
     def get_priority_levels(self):
         """Get list of priority levels with descriptions"""
@@ -111,3 +116,15 @@ class DataHandler:
             'Medium': 'Important but not Urgent',
             'Low': 'Can be done later'
         }
+
+    def get_assignment_by_id(self, assignment_id):
+        """Get a single assignment by its ID."""
+        assignments = self.load_assignments()
+        for assignment in assignments:
+            if assignment.get('id') == assignment_id:
+                return assignment
+        return None
+
+    def get_assignments_by_filter(self, filter_text, filter_type):
+        # TODO: Implement filtering logic or remove if AssignmentsTab handles all filtering.
+        pass

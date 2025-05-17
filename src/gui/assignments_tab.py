@@ -72,8 +72,8 @@ class AddAssignmentDialog(tk.Toplevel):
         self.name_entry = ttk.Entry(form_frame, textvariable=self.name_var, width=50)
         self.name_entry.grid(row=0, column=1, sticky="ew", pady=2)
 
-        # Field: Class/Subject
-        ttk.Label(form_frame, text="Class/Subject:").grid(row=1, column=0, sticky="w", pady=2)
+        # Field: Class
+        ttk.Label(form_frame, text="Class:").grid(row=1, column=0, sticky="w", pady=2)
         self.class_entry = ttk.Entry(form_frame, textvariable=self.class_var, width=50)
         self.class_entry.grid(row=1, column=1, sticky="ew", pady=2)
 
@@ -233,73 +233,84 @@ class AssignmentsTab(ttk.Frame):
 
     def setup_ui(self):
         """Creates and lays out the UI elements for the Assignments tab."""
-        # Frame for top controls (search, add button, refresh button)
-        top_controls_frame = ttk.Frame(self)
-        top_controls_frame.pack(fill='x', padx=5, pady=5)
+        # Apply style for Treeview item font
+        s = ttk.Style()
+        s.configure("Assignments.Treeview", rowheight=25) # Optional: increase row height
+        s.configure("Assignments.Treeview", font=("Segoe UI", 10)) # Item font, default is usually smaller
+        s.configure("Assignments.Treeview.Heading", font=("Segoe UI", 10, "bold")) # Heading font
 
-        search_label = ttk.Label(top_controls_frame, text="Search:")
-        search_label.pack(side='left', padx=(0, 5))
-        search_entry = ttk.Entry(top_controls_frame, textvariable=self.search_var)
-        search_entry.pack(side='left', fill='x', expand=True, padx=(0,10))
+        # Main frame for this tab
+        main_frame = ttk.Frame(self, padding="10")
+        main_frame.pack(expand=True, fill="both")
+        main_frame.columnconfigure(0, weight=1) # Make the treeview column expandable
+        main_frame.rowconfigure(1, weight=1)    # Make the treeview row expandable
 
-        add_button = ttk.Button(top_controls_frame, text="Add Assignment", command=self.open_add_assignment_dialog)
-        add_button.pack(side='left')
-        
-        refresh_button = ttk.Button(top_controls_frame, text="Refresh", command=self.update_assignments_list)
-        refresh_button.pack(side='left', padx=(5,0))
+        # Search and Filter Frame
+        filter_frame = ttk.Frame(main_frame)
+        filter_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.search_entry = ttk.Entry(filter_frame, textvariable=self.search_var, width=30)
+        self.search_entry.pack(side="left", padx=(0,5))
+        ttk.Button(filter_frame, text="Search", command=self.update_assignments_list).pack(side="left", padx=(0,10))
+        ttk.Button(filter_frame, text="Clear Search", command=self.clear_search).pack(side="left")
 
-        # Action buttons for selected items
-        actions_frame = ttk.Frame(top_controls_frame) # Use a sub-frame for better layout if more buttons come
-        actions_frame.pack(side='left', padx=(10,0))
-
-        toggle_button = ttk.Button(actions_frame, text="Toggle Complete", command=self._toggle_selected_completion)
-        toggle_button.pack(side='left')
-
-        delete_button = ttk.Button(actions_frame, text="Delete Selected", command=self._delete_selected_assignment)
-        delete_button.pack(side='left', padx=(5,0))
-
-        # Treeview for displaying assignments
-        # 'id' column is used internally for mapping but not displayed.
-        tree_columns = ('id', 'name', 'class', 'due_date', 'priority', 'difficulty', 'completed')
-        display_cols = ('name', 'class', 'due_date', 'priority', 'difficulty', 'completed')
+        # Assignments Treeview
         self.assignments_tree = ttk.Treeview(
-            self, # Parent widget
-            columns=tree_columns,
-            displaycolumns=display_cols, 
-            show='headings'
+            main_frame, 
+            columns=("ID", "Name", "Class", "Due Date", "Priority", "Difficulty", "Status"), 
+            displaycolumns=("Name", "Class", "Due Date", "Priority", "Difficulty", "Status"), 
+            show="headings",
+            style="Assignments.Treeview"
         )
+        self.assignments_tree.heading("Name", text="Assignment Name")
+        self.assignments_tree.heading("Class", text="Class")
+        self.assignments_tree.heading("Due Date", text="Due Date")
+        self.assignments_tree.heading("Priority", text="Priority")
+        self.assignments_tree.heading("Difficulty", text="Difficulty")
+        self.assignments_tree.heading("Status", text="Status")
+        self.assignments_tree.grid(row=1, column=0, sticky="nsew") # Reverted row to 1
         
-        # Configure column headings
-        self.assignments_tree.heading('name', text='Assignment')
-        self.assignments_tree.heading('class', text='Subject')
-        self.assignments_tree.heading('due_date', text='Due Date')
-        self.assignments_tree.heading('priority', text='Priority')
-        self.assignments_tree.heading('difficulty', text='Difficulty')
-        self.assignments_tree.heading('completed', text='Completed')
+        # Configure column widths (adjust as needed)
+        self.assignments_tree.column("ID", width=0, stretch=tk.NO) # Hidden ID column
+        self.assignments_tree.column("Name", width=250, anchor='w')
+        self.assignments_tree.column("Class", width=120, anchor='w')
+        self.assignments_tree.column("Due Date", width=100, anchor='center')
+        self.assignments_tree.column("Priority", width=80, anchor='center')
+        self.assignments_tree.column("Difficulty", width=80, anchor='center')
+        self.assignments_tree.column("Status", width=70, anchor='center')
+
+        # Scrollbars - DEFINED HERE
+        vsb = ttk.Scrollbar(main_frame, orient="vertical", command=self.assignments_tree.yview)
+        hsb = ttk.Scrollbar(main_frame, orient="horizontal", command=self.assignments_tree.xview)
+        self.assignments_tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        vsb.grid(row=1, column=1, sticky='ns') # Reverted row to 1
+        hsb.grid(row=2, column=0, sticky='ew') # Reverted row to 2, removed pady
         
-        # Configure column properties (widths, alignment)
-        self.assignments_tree.column('id', width=0, stretch=tk.NO) # Hidden ID column
-        self.assignments_tree.column('name', width=250, anchor='w')
-        self.assignments_tree.column('class', width=120, anchor='w')
-        self.assignments_tree.column('due_date', width=100, anchor='center')
-        self.assignments_tree.column('priority', width=80, anchor='center')
-        self.assignments_tree.column('difficulty', width=80, anchor='center')
-        self.assignments_tree.column('completed', width=80, anchor='center')
+        # Button Frame for actions
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=3, column=0, sticky="ew", pady=(10,0)) # Reverted row to 3, restored original pady
+
+        add_button = ttk.Button(button_frame, text="Add New", command=self.open_add_assignment_dialog)
+        add_button.pack(side="left", padx=5)
+
+        # Edit Button - ADDED HERE
+        self.edit_button = ttk.Button(button_frame, text="Edit Selected", command=self._edit_selected_assignment, state="disabled")
+        self.edit_button.pack(side="left", padx=5)
+
+        self.delete_button = ttk.Button(button_frame, text="Delete Selected", command=self._delete_selected_assignment, state="disabled")
+        self.delete_button.pack(side="left", padx=5)
+
+        self.mark_complete_button = ttk.Button(button_frame, text="Mark Complete", command=lambda: self._toggle_selected_completion(True), state="disabled")
+        self.mark_complete_button.pack(side="left", padx=5)
+
+        self.mark_incomplete_button = ttk.Button(button_frame, text="Mark Incomplete", command=lambda: self._toggle_selected_completion(False), state="disabled")
+        self.mark_incomplete_button.pack(side="left", padx=5)
         
-        # Scrollbar for the Treeview
-        scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.assignments_tree.yview)
-        self.assignments_tree.configure(yscrollcommand=scrollbar.set)
-        
-        # Layout for Treeview and Scrollbar using a dedicated frame
-        tree_frame = ttk.Frame(self)
-        tree_frame.pack(fill='both', expand=True, padx=5, pady=(0,5)) # pady has bottom padding
-        
-        self.assignments_tree.pack(side='left', fill='both', expand=True)
-        scrollbar.pack(side='right', fill='y')
-        
-        # Event binding for editing
-        self.assignments_tree.bind('<Double-1>', self.on_assignment_double_click)
-        
+        # Initial population and event bindings
+        self.update_assignments_list()
+        self.assignments_tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        self.assignments_tree.bind("<Double-1>", self.on_assignment_double_click)
+
     def get_assignments(self):
         """Fetches assignments from the data provider."""
         if callable(self.assignments_provider):
@@ -329,7 +340,7 @@ class AssignmentsTab(ttk.Frame):
             if (search_term in assignment.get('name', '').lower() or
                 search_term in assignment.get('class', '').lower()):
                 
-                completed_status = "Yes" if assignment.get('completed', False) else "No"
+                completed_status = "Complete" if assignment.get('completed', False) else "Incomplete"
                 difficulty_display = f"{assignment.get('difficulty', '-')}/10"
                 
                 self.assignments_tree.insert(
@@ -369,32 +380,8 @@ class AssignmentsTab(ttk.Frame):
                 messagebox.showerror("Configuration Error", "Add assignment callback not configured.", parent=self.winfo_toplevel())
 
     def on_assignment_double_click(self, event):
-        """Handles double-click on an assignment in the tree, opening the edit dialog."""
-        selected_item_iid = self.assignments_tree.focus() 
-        if not selected_item_iid: # No item selected
-            return
-        
-        original_assignment_data = None
-        # Find the full assignment object using its ID (stored as iid)
-        for assignment in self.get_assignments():
-            if str(assignment.get('id')) == str(selected_item_iid):
-                original_assignment_data = assignment
-                break
-        
-        if original_assignment_data:
-            edit_assignment_callback = self.app_callbacks.get('edit_assignment')
-            if edit_assignment_callback:
-                theme_provider_callback = getattr(self.master.master, 'get_current_theme_settings', lambda: {})
-                dialog = AddAssignmentDialog(self, self.app_callbacks, theme_provider_callback, assignment_to_edit=original_assignment_data)
-                if dialog.result: # User clicked "Save"
-                    updated_assignment_data = dialog.result
-                    edit_assignment_callback(updated_assignment_data)
-                    # App's callback (handle_edit_assignment_request) is now responsible for messages and refresh.
-                    # self.update_assignments_list() # This is handled by app's refresh_all_tabs
-            else:
-                 messagebox.showerror("Configuration Error", "Edit assignment callback not configured.", parent=self.winfo_toplevel())
-        else:
-            messagebox.showwarning("Edit Error", f"Could not find assignment with ID '{selected_item_iid}' to edit.", parent=self.winfo_toplevel())
+        """Handles double-clicking an assignment to edit it."""
+        self._edit_selected_assignment() # MODIFIED to call _edit_selected_assignment
 
     def _get_selected_assignment_object(self):
         """Helper to get the full assignment object for the currently focused treeview item."""
@@ -426,7 +413,7 @@ class AssignmentsTab(ttk.Frame):
         else:
             messagebox.showerror("Configuration Error", "Delete assignment callback not configured.", parent=self.winfo_toplevel())
 
-    def _toggle_selected_completion(self):
+    def _toggle_selected_completion(self, mark_completed):
         """Handles toggling the completion status of the selected assignment."""
         selected_assignment = self._get_selected_assignment_object()
         if not selected_assignment:
@@ -440,6 +427,51 @@ class AssignmentsTab(ttk.Frame):
             # self.update_assignments_list() # app.py's refresh_all_tabs will handle this
         else:
             messagebox.showerror("Configuration Error", "Toggle completion callback not configured.", parent=self.winfo_toplevel())
+
+    def on_tree_select(self, event=None):
+        """Updates button states based on Treeview selection."""
+        selected_item = self.assignments_tree.selection()
+        has_selection = bool(selected_item)
+        
+        self.delete_button.config(state="normal" if has_selection else "disabled")
+        self.edit_button.config(state="normal" if has_selection else "disabled") # Enable/disable edit button
+        self.mark_complete_button.config(state="normal" if has_selection else "disabled")
+        self.mark_incomplete_button.config(state="normal" if has_selection else "disabled")
+
+    def _edit_selected_assignment(self):
+        """Opens the Add/Edit dialog for the currently selected assignment."""
+        selected_assignment_obj = self._get_selected_assignment_object()
+        if not selected_assignment_obj:
+            messagebox.showinfo("Edit Assignment", "Please select an assignment to edit.", parent=self)
+            return
+
+        # Get the theme provider callback from the main app instance.
+        # self.master is the notebook, self.master.master is HomeworkTrackerApp.
+        theme_provider_callback = getattr(self.master.master, 'get_current_theme_settings', lambda: {})
+
+        # The AddAssignmentDialog is reused for editing
+        dialog = AddAssignmentDialog(self, self.app_callbacks, theme_provider_callback, assignment_to_edit=selected_assignment_obj)
+        
+        if dialog.result: # User clicked Save
+            # The dialog result should already include the original ID if editing
+            # Ensure the ID is part of the result for the update operation
+            if 'id' not in dialog.result and 'id' in selected_assignment_obj:
+                 dialog.result['id'] = selected_assignment_obj['id']
+            
+            if 'id' not in dialog.result:
+                messagebox.showerror("Edit Error", "Failed to edit assignment: ID was missing.", parent=self)
+                return
+
+            if self.app_callbacks and 'edit_assignment' in self.app_callbacks:
+                self.app_callbacks['edit_assignment'](dialog.result)
+            else:
+                messagebox.showerror("Error", "Edit callback not configured.", parent=self)
+        # If dialog.result is None, user cancelled, so do nothing
+
+    def clear_search(self):
+        """Clears the search term and updates the assignments list."""
+        self.search_var.set("")
+        # self.update_assignments_list() # The trace on search_var should trigger this automatically
 
 
 if __name__ == '__main__':

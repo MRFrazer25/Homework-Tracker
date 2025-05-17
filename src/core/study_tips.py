@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
+from src.utils.helpers import HOURS_PER_DIFFICULTY_POINT
+import random
 
 class StudyTipsGenerator:
     """Generates intelligent study tips and suggestions based on assignments and workload."""
-
-    HOURS_PER_DIFFICULTY_POINT = 1.5  # Heuristic for workload/schedule estimation
 
     @staticmethod
     def get_enhanced_study_tips(assignments, current_assignment):
@@ -34,44 +34,63 @@ class StudyTipsGenerator:
                 "This seems like a lighter task. Plan to complete it efficiently!"
              ])
         
-        # Subject-specific tips
-        subject_tips = {
-            'Math': [
-                "Practice similar problems from textbook exercises.",
-                "Create a formula sheet for quick reference.",
-                "Work through examples step-by-step.",
-                "Use online math resources for additional practice if stuck."
+        # General tips applicable to most assignments
+        GENERAL_TIPS = [
+            "Break down large assignments into smaller, manageable tasks.",
+            "Create a study schedule and stick to it.",
+            "Minimize distractions: find a quiet study space and turn off notifications.",
+            "Take regular short breaks (e.g., 5-10 minutes every hour) to stay fresh.",
+            "Review your notes regularly, not just before an exam.",
+            "Practice active recall: try to retrieve information without looking at your notes.",
+            "Teach the material to someone else to solidify your understanding.",
+            "Get enough sleep; it's crucial for memory consolidation.",
+            "Stay hydrated and eat nutritious food to keep your brain powered.",
+            "Don't be afraid to ask for help from teachers or classmates if you're stuck."
+        ]
+
+        # Class-specific tips
+        class_tips = {
+            "Math": [
+                "Practice problems regularly. Understanding concepts is key, but practice builds speed and accuracy.",
+                "Don't just memorize formulas; understand how they are derived and when to use them.",
+                "Draw diagrams or visualize problems to help understand them better.",
+                "Check your answers, and if you made a mistake, try to understand why."
             ],
-            'Science': [
-                "Create visual diagrams or flashcards for key concepts.",
-                "Review lab safety guidelines thoroughly before any experiments.",
-                "Try to connect theories to real-world applications.",
-                "Make use of educational science videos to visualize complex topics."
+            "Science": [
+                "Understand the scientific method and how it applies to different topics.",
+                "Relate concepts to real-world examples.",
+                "For lab work, understand the procedures and safety precautions thoroughly before starting.",
+                "Use flashcards for terminology and diagrams for processes."
             ],
-            'History': [
-                "Create timelines to visualize event sequences and their context.",
-                "Use mind maps to connect related historical events, figures, and ideas.",
-                "Focus on understanding cause and effect relationships.",
-                "Write summaries of chapters or periods in your own words to aid retention."
+            "History": [
+                "Create timelines to understand the sequence of events.",
+                "Focus on cause and effect relationships rather than just memorizing dates.",
+                "Read primary sources when possible to get a deeper understanding.",
+                "Try to explain historical events in your own words."
             ],
-            'English': [
-                "Create a detailed outline before starting any writing assignment.",
-                "Read your written work aloud to check for flow, clarity, and errors.",
-                "Consider peer review sessions for constructive feedback.",
-                "Utilize writing tools for grammar and style checking."
+            "English": [
+                "Read widely, both assigned texts and for pleasure, to improve vocabulary and comprehension.",
+                "When writing essays, create an outline first to organize your thoughts.",
+                "Pay attention to grammar, punctuation, and style.",
+                "Practice summarizing texts and identifying main arguments."
             ],
-            'Computer Science': [
-                "Test your code frequently with various input cases, including edge cases.",
-                "Document your code with comments as you write, not just at the end.",
-                "Break down complex programming problems into smaller, solvable parts.",
-                "Learn to use debugging tools effectively to find and fix issues."
+            "Programming": [
+                "Break down complex problems into smaller, solvable parts.",
+                "Write pseudocode before writing actual code.",
+                "Test your code frequently as you write it.",
+                "Don't be afraid to look up documentation or ask for help on forums (but try to solve it yourself first).",
+                "Version control (like Git) is your friend, even for small projects."
             ]
-            # Add more subjects and tips as needed
+            # Add more classes and tips as needed
         }
-        
+
+        # Add general tips first
+        tips.extend(random.sample(GENERAL_TIPS, min(len(GENERAL_TIPS), 3))) # Get up to 3 random general tips
+
+        # Add class-specific tips
         assignment_class = current_assignment.get('class')
-        if assignment_class and assignment_class in subject_tips:
-            tips.extend(subject_tips[assignment_class])
+        if assignment_class and assignment_class in class_tips:
+            tips.extend(class_tips[assignment_class])
         
         # Workload management tips based on all assignments
         if assignments: 
@@ -148,7 +167,7 @@ class StudyTipsGenerator:
             )
         
         total_estimated_hours = sum(
-            a.get('difficulty', 0) * StudyTipsGenerator.HOURS_PER_DIFFICULTY_POINT
+            a.get('difficulty', 0) * HOURS_PER_DIFFICULTY_POINT
             for a in active_week_assignments
         )
         
@@ -182,8 +201,10 @@ class StudyTipsGenerator:
         
         priority_map = {'High': 3, 'Medium': 2, 'Low': 1, 'Other': 0}
         # Correct sorting: Higher priority first, then earlier due date first
-        upcoming_schedulable.sort(key=lambda x: x['due_date']) # Sort by due date first (earliest first)
-        upcoming_schedulable.sort(key=lambda x: priority_map.get(x.get('priority', 'Other'), 0), reverse=True) # Then sort by priority (highest first)
+        upcoming_schedulable.sort(key=lambda x: (
+            -priority_map.get(x.get('priority', 'Other'), 0),  # Negative for descending priority
+            x['due_date']  # Ascending due date for ties
+        ))
 
 
         schedule = ["📅 Suggested Study Schedule Focus (Top 5):"]
@@ -191,7 +212,7 @@ class StudyTipsGenerator:
         for assignment in upcoming_schedulable[:5]: 
             days_until_due = (assignment['due_date'] - datetime.now()).days
             difficulty = assignment.get('difficulty', 0)
-            estimated_hours_total = difficulty * StudyTipsGenerator.HOURS_PER_DIFFICULTY_POINT
+            estimated_hours_total = difficulty * HOURS_PER_DIFFICULTY_POINT
             
             # Ensure days_until_due is positive for daily hour calculation
             if days_until_due > 0:

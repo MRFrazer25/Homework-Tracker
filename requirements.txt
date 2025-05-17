@@ -1,8 +1,9 @@
-tkcalendar
-pillow
+ttkbootstrap
+Pillow
 matplotlib
-numpy
-python-dateutil
-babel
 transformers
 torch
+sentencepiece
+langchain
+langchain-community
+babel

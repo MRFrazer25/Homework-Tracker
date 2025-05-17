@@ -1,25 +1,51 @@
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates # Moved import here
+import matplotlib.dates as mdates # Ensure this is imported
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 # from ...utils.helpers import format_date # If needed
 from datetime import datetime, timedelta # Added timedelta for sample data
+from collections import Counter
+
+# Default FALLBACK Matplotlib style parameters if ttkbootstrap colors are unavailable
+LIGHT_MPL_STYLE_FALLBACK = {
+    "figure.facecolor": "#F0F0F0", # Default light gray
+    "axes.facecolor": "white",
+    "axes.edgecolor": "black",
+    "axes.labelcolor": "black",
+    "xtick.color": "black",
+    "ytick.color": "black",
+    "text.color": "black",
+    "patch.edgecolor": "black"
+}
+
+DARK_MPL_STYLE_FALLBACK = {
+    "figure.facecolor": "#2E2E2E",
+    "axes.facecolor": "#3C3C3C",
+    "axes.edgecolor": "white",
+    "axes.labelcolor": "white",
+    "xtick.color": "white",
+    "ytick.color": "white",
+    "text.color": "white",
+    "patch.edgecolor": "white"
+}
 
 class StatisticsTab(ttk.Frame):
     """Tab for displaying various statistical charts about assignments."""
-    def __init__(self, parent, assignments_data_provider):
+    def __init__(self, parent, assignments_data_provider, app_callbacks):
         """
         Initializes the Statistics tab.
 
         Args:
             parent: The parent widget (notebook).
             assignments_data_provider: Callable to get the list of assignments.
-                                       This is expected to be a list of assignment dicts.
+            app_callbacks: Dictionary of callbacks to the main application,
+                           including get_master_app.
         """
         super().__init__(parent)
-        # Store the assignments data directly if it's a list, or the provider if it's a callable
         self.assignments_data_source = assignments_data_provider
+        self.app_callbacks = app_callbacks
+        self.app_instance = self.app_callbacks['get_master_app']()
         
         self.fig = None
         self.canvas = None
@@ -34,7 +60,73 @@ class StatisticsTab(ttk.Frame):
         self.no_data_label = None # Will be created in setup_charts_ui
 
         self.setup_charts_ui() # Creates canvas and no_data_label
-        self.refresh_charts()  # Initial data load and display logic
+        # Defer refresh_charts until after on_theme_changed is called once
+        # to ensure plots are styled correctly on initial load.
+        # self.refresh_charts() # Called by on_theme_changed
+        
+        # Initial theme setup
+        # We need to ensure the main app is available to get settings.
+        # This assumes app.py's get_master_app callback is set up.
+        # A small delay or a more robust mechanism might be needed if settings aren't immediately available.
+        self.after(10, self._initial_theme_setup)
+
+    def _get_matplotlib_style(self, is_dark_theme):
+        """Generates Matplotlib style dictionary based on ttkbootstrap theme colors."""
+        # Determine fallback style first
+        fallback_style = DARK_MPL_STYLE_FALLBACK if is_dark_theme else LIGHT_MPL_STYLE_FALLBACK
+
+        try:
+            bs_style = self.app_instance.root.style
+            
+            bg_color = bs_style.colors.get('bg') or fallback_style["figure.facecolor"]
+            fg_color = bs_style.colors.get('fg') or fallback_style["text.color"]
+            inputbg_color = bs_style.colors.get('inputbg') or fallback_style["axes.facecolor"] # Default axes to inputbg or its fallback
+            
+            axes_bg = inputbg_color 
+            
+            if bg_color == inputbg_color:
+                if is_dark_theme:
+                    try: 
+                        r, g, b = self.app_instance.root.winfo_rgb(bg_color)
+                        # Attempt to create a slightly lighter shade for axes_bg
+                        # Ensure values are within 0-255 before formatting
+                        r_ax = min(255, int(r / 256 * 1.15)) # Increase brightness a bit more (e.g. *1.15)
+                        g_ax = min(255, int(g / 256 * 1.15))
+                        b_ax = min(255, int(b / 256 * 1.15))
+                        axes_bg_candidate = f"#{r_ax:02x}{g_ax:02x}{b_ax:02x}"
+                        # Check if the new color is different enough, otherwise use fallback axes color
+                        if axes_bg_candidate != bg_color: # Check if it actually changed
+                           axes_bg = axes_bg_candidate
+                        else: # if it's still same as bg_color (e.g. bg_color was already very light like #FFFFFF)
+                           axes_bg = fallback_style["axes.facecolor"] # use specific fallback for axes
+                    except:
+                        axes_bg = fallback_style["axes.facecolor"]
+                else:
+                    axes_bg = "white" # Often white is best for light theme plot backgrounds
+            
+            return {
+                "figure.facecolor": bg_color,
+                "axes.facecolor": axes_bg, 
+                "axes.edgecolor": fg_color,
+                "axes.labelcolor": fg_color,
+                "xtick.color": fg_color,
+                "ytick.color": fg_color,
+                "text.color": fg_color,
+                "patch.edgecolor": fg_color
+            }
+        except Exception as e:
+            # print(f"StatisticsTab: Error getting ttkbootstrap colors for MPL: {e}. Using main fallback.")
+            return fallback_style
+
+    def _initial_theme_setup(self):
+        """Safely performs initial theme setup and chart refresh."""
+        if self.app_instance and hasattr(self.app_instance, 'is_dark_theme'):
+            self.on_theme_changed(self.app_instance.is_dark_theme())
+        else:
+            # Fallback if app or settings are not ready (should not happen ideally)
+            print("Warning: StatisticsTab could not access app_instance for initial theme setup.")
+            self.on_theme_changed(False) # Assume light theme as default
+        self.refresh_charts() # Now refresh with initial theme
 
     def get_assignments(self):
         """Fetches assignments from the data source."""
@@ -47,7 +139,7 @@ class StatisticsTab(ttk.Frame):
            This is called once during initialization.
         """
         # Create the Matplotlib figure and axes
-        self.fig = plt.Figure(figsize=(10, 8), dpi=100)
+        self.fig = plt.Figure(figsize=(8, 6), dpi=100)
         self.ax_priority = self.fig.add_subplot(221)
         self.ax_category = self.fig.add_subplot(222)
         self.ax_difficulty = self.fig.add_subplot(223)
@@ -63,9 +155,80 @@ class StatisticsTab(ttk.Frame):
         self.no_data_label = ttk.Label(
             self.charts_container_frame,
             text="No assignments to analyze for statistics.",
-            style='Header.TLabel' # Assuming Header.TLabel is defined in app.py
+            font=("TkDefaultFont", 12) # Explicit font
+            # style='Header.TLabel' # Style might not be available or might clash
         )
         # Do not pack no_data_label here; refresh_charts will manage it.
+
+    def on_theme_changed(self, is_dark_theme):
+        """Updates chart and label styles based on the theme."""
+        if not self.fig: # Not yet initialized
+            return
+        
+        style_to_apply = self._get_matplotlib_style(is_dark_theme)
+        theme_settings = {} # Default empty dict
+
+        if not self.app_instance or not hasattr(self.app_instance, 'is_dark_theme') or not hasattr(self.app_instance, 'get_current_theme_settings'):
+            print("Warning: StatisticsTab cannot access app_instance or full theme settings.")
+            # Use fallback style_to_apply and derive basic colors
+            self.text_color = style_to_apply.get("text.color", 'white' if is_dark_theme else 'black')
+            self.plot_bg_color = style_to_apply.get("axes.facecolor", '#3C3C3C' if is_dark_theme else 'white')
+            self.figure_bg_color = style_to_apply.get("figure.facecolor", '#2E2E2E' if is_dark_theme else '#F0F0F0')
+            self.grid_color = style_to_apply.get("axes.edgecolor", 'white' if is_dark_theme else 'black') # Using edgecolor for grid
+            text_color_fallback = self.text_color
+            bg_color_fallback = self.plot_bg_color # For no_data_label background
+            
+            if self.no_data_label:
+                 self.no_data_label.configure(
+                    foreground=text_color_fallback,
+                    background=bg_color_fallback 
+                )
+        else:
+            theme_settings = self.app_instance.get_current_theme_settings()
+            # Set instance attributes for colors and fonts from theme_settings or style_to_apply
+            self.text_color = theme_settings.get('text_color', style_to_apply.get("text.color", 'white' if is_dark_theme else 'black'))
+            self.plot_bg_color = theme_settings.get('plot_bg', style_to_apply.get("axes.facecolor", '#3C3C3C' if is_dark_theme else 'white'))
+            self.figure_bg_color = theme_settings.get('background_color', style_to_apply.get("figure.facecolor", '#2E2E2E' if is_dark_theme else '#F0F0F0'))
+            self.grid_color = theme_settings.get('grid_color', style_to_apply.get("axes.edgecolor", 'gray')) # A dedicated grid color or fallback
+
+        # Font sizes - provide defaults if not in theme_settings
+        self.chart_font_size = theme_settings.get('chart_font_size', 12)
+        self.axis_label_font_size = theme_settings.get('axis_label_font_size', 10)
+        self.tick_label_font_size = theme_settings.get('tick_label_font_size', 9)
+        
+        # Apply the chosen style to Matplotlib rcParams
+        plt.rcParams.update(style_to_apply)
+
+        # Specific adjustments for our figure and axes
+        self.fig.patch.set_facecolor(self.figure_bg_color)
+        for ax in [self.ax_priority, self.ax_category, self.ax_difficulty, self.ax_timeline]:
+            if ax: # Ensure axis exists
+                ax.set_facecolor(self.plot_bg_color)
+                ax.tick_params(colors=self.text_color, which='both') # For x and y ticks
+                ax.xaxis.label.set_color(self.text_color)
+                ax.yaxis.label.set_color(self.text_color)
+                ax.title.set_color(self.text_color)
+                for spine in ax.spines.values():
+                    spine.set_edgecolor(self.grid_color) # Use grid_color for spines
+        
+        # Update 'no_data_label' style
+        if self.no_data_label:
+            self.no_data_label.configure(
+                foreground=self.text_color,
+                background=self.figure_bg_color # Match figure background
+            )
+            # Ensure the container frame also matches the theme
+            self.charts_container_frame.configure(style='TFrame')
+
+
+        if self.canvas:
+            self.canvas.draw_idle() # Redraw with new styles
+
+        # We need to refresh the chart data as well, because colors for bars/pies
+        # might need to be re-evaluated or are set during chart creation.
+        # However, calling full refresh_charts() here might be too much if only colors changed.
+        # For simplicity now, we'll call it. If performance is an issue, this could be optimized.
+        # self.refresh_charts() # REMOVED: To prevent potential issues and redundant calls.
 
     def refresh_charts(self):
         """Clears and redraws all charts with current assignment data, or shows 'no data' message."""
@@ -85,7 +248,29 @@ class StatisticsTab(ttk.Frame):
         if self.no_data_label.winfo_ismapped():
             self.no_data_label.pack_forget()
         if not self.canvas_widget.winfo_ismapped():
+            # Apply theme settings to the canvas widget's parent as well for consistency
+            if self.app_instance and hasattr(self.app_instance, 'get_current_theme_settings'):
+                is_dark = self.app_instance.is_dark_theme()
+                # Set canvas background to match figure background
+                self.canvas_widget.configure(bg=self._get_matplotlib_style(is_dark)["figure.facecolor"])
+            
             self.canvas_widget.pack(fill='both', expand=True)
+
+        # Apply current theme styles before drawing new data
+        # This is important because plt.rcParams might have been reset or changed elsewhere.
+        if self.app_instance and hasattr(self.app_instance, 'is_dark_theme'):
+             current_style = self._get_matplotlib_style(self.app_instance.is_dark_theme())
+             plt.rcParams.update(current_style)
+             self.fig.patch.set_facecolor(current_style["figure.facecolor"])
+             for ax_obj in [self.ax_priority, self.ax_category, self.ax_difficulty, self.ax_timeline]:
+                if ax_obj:
+                    ax_obj.set_facecolor(current_style["axes.facecolor"])
+                    ax_obj.tick_params(colors=current_style["xtick.color"], which='both')
+                    ax_obj.xaxis.label.set_color(current_style["axes.labelcolor"])
+                    ax_obj.yaxis.label.set_color(current_style["axes.labelcolor"])
+                    ax_obj.title.set_color(current_style["text.color"])
+                    for spine in ax_obj.spines.values():
+                        spine.set_edgecolor(current_style["axes.edgecolor"])
 
         # Clear previous plot content from each axis
         self.ax_priority.clear()
@@ -127,87 +312,206 @@ class StatisticsTab(ttk.Frame):
         colors_map = {'High': '#FF6347', 'Medium': '#FFA500', 'Low': '#32CD32', 'Other': '#778899'} # Tomato, Orange, LimeGreen, LightSlateGray
         pie_colors = [colors_map.get(label, '#778899') for label in labels]
 
+        # Determine text color based on theme for autopct and labels
+        text_color = plt.rcParams.get('text.color', 'black') # Default to black if not found
+
         ax.pie(
             values,
             labels=labels,
             autopct='%1.1f%%',
-            colors=pie_colors
+            colors=pie_colors,
+            textprops={'color': text_color}, # Ensure pie chart text (labels, autopct) uses theme color
+            wedgeprops={'edgecolor': plt.rcParams.get('patch.edgecolor', 'black')} # Ensure wedge borders use theme color
         )
-        ax.set_title('Assignments by Priority')
+        ax.set_title('Assignments by Priority') # Title color is handled by general ax settings
         
     def _create_category_chart(self, ax, assignments):
         """Creates a bar chart of assignment categories (using 'class' as category)."""
-        category_counts = {}
-        for a in assignments:
-            # Using 'class' field as 'category' as per other tabs
-            category = a.get('class', 'Uncategorized') 
-            category_counts[category] = category_counts.get(category, 0) + 1
+        # This function will now create a BAR chart of assignments by PRIORITY
+        # to match the visual evidence from the user's image for the top-right plot.
+        # The original attempt to make this plot by 'class' was conflicting.
+
+        if not assignments:
+            ax.text(0.5, 0.5, "No assignment data for priority bar chart.", ha='center', va='center', fontsize=self.axis_label_font_size, color=self.text_color)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title('Assignments by Priority', color=self.text_color, fontsize=self.chart_font_size)
+            return
+
+        # Count assignments by priority
+        priority_counts_counter = Counter([asn.get('priority', 'N/A') for asn in assignments])
+
+        # Sort by a defined priority order (High, Medium, Low, N/A)
+        priority_order = {'High': 0, 'Medium': 1, 'Low': 2, 'N/A': 3}
         
-        if not category_counts:
-            ax.text(0.5, 0.5, "No category data", ha='center', va='center', transform=ax.transAxes)
+        # Filter out priorities not present in data and sort
+        sorted_priorities = sorted(
+            priority_counts_counter.items(), 
+            key=lambda item: priority_order.get(item[0], 99) # Sort by defined order, others last
+        )
+        
+        if not sorted_priorities:
+            ax.text(0.5, 0.5, "No priority data to display.", ha='center', va='center', fontsize=self.axis_label_font_size, color=self.text_color)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title('Assignments by Priority', color=self.text_color, fontsize=self.chart_font_size)
+            return
+            
+        labels = [item[0] for item in sorted_priorities]
+        values = [item[1] for item in sorted_priorities]
+
+        # Define a color map for priorities using ttkbootstrap theme colors
+        priority_color_map = {
+            'High': self.app_instance.root.style.colors.danger,
+            'Medium': self.app_instance.root.style.colors.warning,
+            'Low': self.app_instance.root.style.colors.success,
+            'N/A': self.app_instance.root.style.colors.secondary
+        }
+        bar_colors = [priority_color_map.get(label, self.app_instance.root.style.colors.primary) for label in labels]
+
+        # ax.clear() # Clearing is now handled by refresh_charts() before calling this.
+        ax.bar(labels, values, color=bar_colors)
+        
+        ax.set_title('Assignments by Priority', color=self.text_color, fontsize=self.chart_font_size)
+        ax.set_ylabel('Number of Assignments', color=self.text_color, fontsize=self.axis_label_font_size)
+        ax.tick_params(axis='x', colors=self.text_color, labelsize=self.tick_label_font_size, rotation=0) # No rotation for few priority labels
+        ax.tick_params(axis='y', colors=self.text_color, labelsize=self.tick_label_font_size)
+        ax.grid(axis='y', linestyle='--', alpha=0.7, color=self.grid_color)
+        # ax.set_facecolor(self.plot_bg_color) # Already set by on_theme_changed or refresh_charts
+
+        # Add text labels on top of bars
+        for i, v in enumerate(values):
+            ax.text(i, v + 0.05 * max(values) if values else 0.1, str(v), color=self.text_color, ha='center', va='bottom', fontsize=self.tick_label_font_size)
+
+        # Ensure y-axis starts at 0 and has some padding if there's data
+        if values:
+            ax.set_ylim(0, max(values) * 1.1 if max(values) > 0 else 1)
         else:
-            ax.bar(list(category_counts.keys()), list(category_counts.values()), color='#FFD700') # Gold bars
-        ax.set_title('Assignments by Subject/Class')
-        ax.tick_params(axis='x', labelrotation=45) # Simpler rotation
-        # Ensure labels fit if many categories
-        if len(category_counts) > 5:
-             self.fig.subplots_adjust(bottom=0.2) # Adjust bottom margin if many x-labels
+            ax.set_ylim(0, 1)
 
     def _create_difficulty_chart(self, ax, assignments):
         """Creates a histogram of assignment difficulties."""
+        ax.clear()
         difficulties = [a.get('difficulty') for a in assignments if a.get('difficulty') is not None]
+        
+        ax.set_facecolor(self.plot_bg_color)
+        ax.tick_params(axis='x', colors=self.text_color, labelsize=self.tick_label_font_size)
+        ax.tick_params(axis='y', colors=self.text_color, labelsize=self.tick_label_font_size)
+        ax.xaxis.label.set_color(self.text_color)
+        ax.yaxis.label.set_color(self.text_color)
+        ax.title.set_color(self.text_color)
+        for spine in ax.spines.values():
+            spine.set_edgecolor(self.grid_color) # Or self.text_color
+
         if not difficulties:
-            ax.text(0.5, 0.5, "No difficulty data", ha='center', va='center', transform=ax.transAxes)
+            ax.text(0.5, 0.5, "No difficulty data", ha='center', va='center', transform=ax.transAxes, color=self.text_color, fontsize=self.axis_label_font_size)
+            ax.set_xticks([])
+            ax.set_yticks([])
         else:
-            ax.hist(difficulties, bins=10, range=(0.5, 10.5), edgecolor='darkgrey', color='#3CB371') # MediumSeaGreen bars
-        ax.set_title('Difficulty Distribution')
-        ax.set_xlabel('Difficulty Level (1-10)')
-        ax.set_ylabel('Number of Assignments')
-        ax.set_xticks(range(1, 11)) # Ensure ticks are at integer difficulty levels
+            # Use a theme-aware color for the histogram bars
+            hist_color = self.app_instance.root.style.colors.info # Or success, primary etc.
+            ax.hist(difficulties, bins=10, range=(0.5, 10.5), edgecolor=self.grid_color, color=hist_color)
+        
+        ax.set_title('Difficulty Distribution', fontsize=self.chart_font_size)
+        ax.set_xlabel('Difficulty Level (1-10)', fontsize=self.axis_label_font_size)
+        ax.set_ylabel('Number of Assignments', fontsize=self.axis_label_font_size)
+        ax.set_xticks(range(1, 11))
+        ax.grid(axis='y', linestyle='--', alpha=0.7, color=self.grid_color)
         
     def _create_timeline_chart(self, ax, assignments):
         """Creates a scatter plot timeline of upcoming assignments."""
-        upcoming = [a for a in assignments if not a.get('completed', False) and a.get('due_date')]
+        ax.clear()
         
-        if upcoming:
-            dates = []
-            for a in upcoming: # Ensure dates are datetime objects
-                due_date = a['due_date']
-                if isinstance(due_date, str):
+        # Apply theme styles
+        ax.set_facecolor(self.plot_bg_color)
+        ax.tick_params(axis='x', colors=self.text_color, labelrotation=45, labelsize=self.tick_label_font_size)
+        # ax.tick_params(axis='y', colors=self.text_color, labelsize=self.tick_label_font_size) # Y-axis is hidden
+        ax.xaxis.label.set_color(self.text_color)
+        # ax.yaxis.label.set_color(self.text_color) # Y-axis has no label
+        ax.title.set_color(self.text_color)
+        for spine in ax.spines.values():
+            spine.set_edgecolor(self.grid_color) # Match other charts
+
+        upcoming_assignments = []
+        today = datetime.now().date() # Compare with date part for day-level precision
+
+        for a in assignments:
+            if not a.get('completed', False):
+                due_date_val = a.get('due_date')
+                dt_obj = None
+                if isinstance(due_date_val, str):
                     try:
-                        dates.append(datetime.strptime(due_date, '%Y-%m-%d %H:%M:%S'))
+                        dt_obj = datetime.strptime(due_date_val, '%Y-%m-%d %H:%M:%S').date()
                     except ValueError:
                         try:
-                            dates.append(datetime.strptime(due_date, '%Y-%m-%d'))
+                            dt_obj = datetime.strptime(due_date_val, '%Y-%m-%d %H:%M').date()
                         except ValueError:
-                            continue # Skip if unparseable
-                elif isinstance(due_date, datetime):
-                    dates.append(due_date)
-                # else skip if not datetime or parsable string
-            
-            if not dates: # If all upcoming had unparseable dates
-                ax.text(0.5, 0.5, "No valid upcoming dates", ha='center', va='center', transform=ax.transAxes)
-            else:
-                # Re-filter upcoming based on successfully parsed dates
-                valid_upcoming = [a for a in upcoming if isinstance(a['due_date'], datetime) or (isinstance(a['due_date'], str) and any(isinstance(d, datetime) and (d.strftime('%Y-%m-%d %H:%M:%S') == a['due_date'] or d.strftime('%Y-%m-%d') == a['due_date']) for d in dates))]
+                            try:
+                                dt_obj = datetime.strptime(due_date_val, '%Y-%m-%d').date()
+                            except ValueError:
+                                continue 
+                elif isinstance(due_date_val, datetime):
+                    dt_obj = due_date_val.date()
+                elif isinstance(due_date_val, date): # Handle if it's already a date object
+                    dt_obj = due_date_val
+                else:
+                    continue 
+                
+                if dt_obj >= today: # Only include today or future dates
+                    # Store the original datetime if available for precise sorting, or date for plotting
+                    plot_date = datetime.combine(dt_obj, datetime.min.time()) # Use datetime for mpl plotting
+                    upcoming_assignments.append({'date': plot_date, 'priority': a.get('priority', 'Other')})
 
-                priorities = [a.get('priority', 'Other') for a in valid_upcoming]
-                
-                # Updated vibrant colors for timeline scatter
-                color_map = {'High': '#FF6347', 'Medium': '#FFA500', 'Low': '#32CD32', 'Other': '#778899'} # Tomato, Orange, LimeGreen, LightSlateGray
-                plot_colors = [color_map.get(p, '#778899') for p in priorities]
-                
-                ax.scatter(dates, [1] * len(dates), c=plot_colors, s=100, alpha=0.7)
-            
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-            ax.tick_params(axis='x', labelrotation=45)
-            self.fig.subplots_adjust(bottom=0.2) # Adjust for rotated labels
-        else:
-            ax.text(0.5, 0.5, "No upcoming assignments", ha='center', va='center', transform=ax.transAxes)
+        ax.set_title('Assignment Timeline (Upcoming)', fontsize=self.chart_font_size)
+        ax.set_xlabel('Due Date', fontsize=self.axis_label_font_size)
+        ax.set_yticks([]) # Hide y-axis
+
+        if not upcoming_assignments:
+            ax.text(0.5, 0.5, "No upcoming assignments to display.", ha='center', va='center', transform=ax.transAxes, color=self.text_color, fontsize=self.axis_label_font_size)
+            ax.set_xticks([])
+            return
+
+        upcoming_assignments.sort(key=lambda x: x['date'])
         
-        ax.set_title('Assignment Timeline (Upcoming)')
-        ax.set_xlabel('Due Date')
-        ax.set_yticks([]) # Hide y-axis as it's not meaningful here
+        dates_to_plot = [a['date'] for a in upcoming_assignments]
+        priorities = [a['priority'] for a in upcoming_assignments]
+        
+        # Use ttkbootstrap theme colors for priorities
+        color_map = {
+            'High': self.app_instance.root.style.colors.danger,
+            'Medium': self.app_instance.root.style.colors.warning,
+            'Low': self.app_instance.root.style.colors.success,
+            'Other': self.app_instance.root.style.colors.secondary
+        }
+        plot_colors = [color_map.get(p, self.app_instance.root.style.colors.secondary) for p in priorities]
+        
+        ax.scatter(dates_to_plot, [1] * len(dates_to_plot), c=plot_colors, s=100, alpha=0.7, edgecolor=self.grid_color)
+            
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        # ax.tick_params(axis='x', labelrotation=45) # Already set above
+        
+        if dates_to_plot:
+            min_date = min(dates_to_plot)
+            max_date = max(dates_to_plot)
+            # Ensure min_date and max_date are datetime objects for timedelta
+            min_dt = min_date if isinstance(min_date, datetime) else datetime.combine(min_date, datetime.min.time())
+            max_dt = max_date if isinstance(max_date, datetime) else datetime.combine(max_date, datetime.min.time())
+
+            # Add at least one day padding, more if range is large
+            min_padding = timedelta(days=1)
+            max_padding = timedelta(days=1)
+            
+            if max_dt > min_dt:
+                 dynamic_padding = timedelta(days=max(1, (max_dt - min_dt).days * 0.05))
+                 min_padding = max(min_padding, dynamic_padding)
+                 max_padding = max(max_padding, dynamic_padding)
+            
+            ax.set_xlim(min_dt - min_padding, max_dt + max_padding)
+        else:
+            # Fallback if dates_to_plot is empty but upcoming_assignments was not (should not happen)
+            ax.set_xticks([])
+        
+        ax.grid(axis='x', linestyle='--', alpha=0.5, color=self.grid_color) # Only show x-grid lines
 
 
 if __name__ == '__main__':
@@ -232,6 +536,52 @@ if __name__ == '__main__':
     def get_test_assignments():
         return sample_assignments
 
-    tab = StatisticsTab(root, get_test_assignments) # Pass the callable
+    # Simulate the main app's theme settings for testing
+    class MockApp(tk.Tk):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._is_dark = False # Start with light
+            self.settings_manager = self # Simplified for test
+
+        def get_current_theme_settings(self):
+            if self._is_dark:
+                return {"text_color": "white", "background_color": "#2E2E2E", "entry_bg": "#3C3C3C", "entry_fg": "white", "plot_bg": "#2E2E2E"}
+            return {"text_color": "black", "background_color": "white", "entry_bg": "white", "entry_fg": "black", "plot_bg": "white"}
+
+        def is_dark_theme(self):
+            return self._is_dark
+
+        def toggle_theme(self): # Method to simulate theme change
+            self._is_dark = not self._is_dark
+            print(f"MockApp: Theme changed. Dark: {self._is_dark}")
+            # In a real app, this would trigger on_theme_changed in tabs
+            if hasattr(self.statistics_tab, 'on_theme_changed'):
+                 self.statistics_tab.on_theme_changed(self._is_dark)
+
+
+    # root = tk.Tk() # Original root
+    root = MockApp() # Use MockApp for testing
+    root.title("Statistics Tab Test")
+
+    def get_test_assignments():
+        return sample_assignments
+
+    # Provide mock app_callbacks for StatisticsTab
+    mock_app_callbacks = {
+        'get_master_app': lambda: root, # MockApp instance itself has the methods
+        # Add other callbacks if StatisticsTab starts using them
+    }
+    tab = StatisticsTab(root, get_test_assignments, mock_app_callbacks)
+    root.statistics_tab = tab # Allow MockApp to access the tab
     tab.pack(expand=True, fill='both')
+    
+    # Add a button to test theme toggling
+    theme_button = ttk.Button(root, text="Toggle Theme (Test)", command=root.toggle_theme)
+    theme_button.pack(pady=5)
+
+    # Initial theme setup for the tab (needed because __init__ defers it)
+    # root.statistics_tab.on_theme_changed(root.is_dark_theme())
+    # root.statistics_tab.refresh_charts()
+    # The _initial_theme_setup will handle this.
+
     root.mainloop()

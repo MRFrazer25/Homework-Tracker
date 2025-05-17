@@ -1,7 +1,12 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from datetime import datetime, timedelta # If needed for summaries
+import tkinter.font as tkFont # ADDED IMPORT
+# No longer need functools.partial here if dialog is removed
 from src.utils.helpers import get_priority_color # Import the helper
+# Import CURATED_THEMES from app.py or a shared constants module if it's moved
+# For now, we assume app_callbacks will provide a way to change theme
+# from ..app import CURATED_THEMES # This relative import might be tricky depending on execution context
 
 class DashboardTab(ttk.Frame):
     """Tab for displaying a dashboard overview, including upcoming assignments."""
@@ -16,10 +21,22 @@ class DashboardTab(ttk.Frame):
         """
         super().__init__(parent)
         self.assignments_provider = assignments_data_provider
-        self.app_callbacks = app_callbacks # Currently unused by this tab but kept for consistency
+        self.app_callbacks = app_callbacks
+        # self.master_app should be resolved by parent.master.master if Notebook is direct child of ThemedTk root
+        # If app.py wraps ThemedTk in another frame, this might need adjustment.
+        # Assuming app.py structure: root (ThemedTk) -> app_instance (contains notebook) -> notebook (parent for this tab)
+        # So, self.parent is notebook. self.parent.master is app_instance's main frame (usually root itself).
+        # Let's try to get app_instance more directly if possible, or ensure master_app is correctly assigned.
+        # A common pattern is for the app instance to be passed in app_callbacks or directly.
+        # For now, assuming app_callbacks['get_app_instance'] or similar could be one way.
+        # For simplicity, let's assume self.app_instance is passed correctly from app.py if needed for CURATED_THEMES
+        # Let's assume self.master_app is correct for now, or we can get it via app_callbacks.
+        self.master_app = app_callbacks.get('get_master_app')() # Expect app to provide this callback
         
         self.summary_frame = None # Frame to hold the upcoming assignments list for easy refresh
         self.top_frame = None     # Main container frame for this tab's content
+        self.assignment_name_font = tkFont.Font(family="Helvetica", size=12, weight="normal") # ADDED FONT DEFINITION
+        self.theme_var = tk.StringVar()
 
         self.setup_ui()
         self.refresh_data() # Populate initial data
@@ -75,7 +92,7 @@ class DashboardTab(ttk.Frame):
                 p_color = get_priority_color(priority) # Use helper function
                 
                 display_text = f"- {assignment.get('name', 'N/A')} ({assignment.get('class', 'N/A')})"
-                ttk.Label(day_frame, text=display_text, foreground=p_color).pack(anchor='w', padx=10, pady=1)
+                ttk.Label(day_frame, text=display_text, foreground=p_color, font=self.assignment_name_font).pack(anchor='w', padx=10, pady=1)
 
 
     def setup_ui(self):
@@ -83,27 +100,66 @@ class DashboardTab(ttk.Frame):
         self.top_frame = ttk.Frame(self) 
         self.top_frame.pack(fill='x', padx=10, pady=5, side=tk.TOP, anchor='n') 
 
-        # Dashboard Overview Title
+        # Header Frame for Title and Theme Button
+        header_controls_frame = ttk.Frame(self.top_frame)
+        header_controls_frame.pack(fill='x', expand=True)
+
         title_label = ttk.Label(
-            self.top_frame,
+            header_controls_frame,
             text="Dashboard Overview", 
             style="Header.TLabel" 
         )
-        title_label.pack(pady=(0,5), anchor='nw') 
+        title_label.pack(side=tk.LEFT, pady=(0,5), anchor='nw') 
 
-        # Separator line
+        # Theme selection Combobox
+        if self.master_app and hasattr(self.master_app, 'CURATED_THEMES') and hasattr(self.master_app, 'settings'):
+            theme_labels = [label for label, name in self.master_app.CURATED_THEMES]
+            self.theme_combobox = ttk.Combobox(header_controls_frame, textvariable=self.theme_var, values=theme_labels, state="readonly", width=25)
+            
+            current_theme_name = self.master_app.settings.get("theme", "clam")
+            current_theme_label = ""
+            for label, name in self.master_app.CURATED_THEMES:
+                if name == current_theme_name:
+                    current_theme_label = label
+                    break
+            if not current_theme_label and theme_labels: # Fallback if current theme name not in labels (e.g. old settings file)
+                current_theme_label = theme_labels[0] 
+            
+            self.theme_var.set(current_theme_label)
+            self.theme_combobox.bind("<<ComboboxSelected>>", self._on_theme_selected)
+            self.theme_combobox.pack(side=tk.RIGHT, padx=(0,5), pady=(0,5))
+        else:
+            ttk.Label(header_controls_frame, text="(Themes N/A)").pack(side=tk.RIGHT, padx=(0,5), pady=(0,5))
+
         separator = ttk.Separator(self.top_frame, orient='horizontal')
-        separator.pack(fill='x', pady=(0, 5)) # pady adds space below separator
+        separator.pack(fill='x', pady=(0, 5), after=header_controls_frame)
 
         # The summary_frame (for upcoming assignments) will be built by refresh_data()
         # and packed into self.top_frame below the separator.
         # No quick add section here as per previous user request.
+
+    def _on_theme_selected(self, event=None): # event is passed by bind
+        selected_label = self.theme_var.get()
+        if self.master_app and hasattr(self.master_app, 'change_theme'):
+            self.master_app.change_theme(selected_label) # app.change_theme can handle labels
+        else:
+            messagebox.showerror("Error", "Cannot change theme.", parent=self.winfo_toplevel())
 
     def refresh_data(self):
         """
         Rebuilds the summary of upcoming assignments.
         Called on initialization and when data changes (via app's refresh_all_tabs).
         """
+        if self.master_app and hasattr(self.master_app, 'settings') and hasattr(self.master_app, 'CURATED_THEMES') and hasattr(self, 'theme_combobox'):
+            current_theme_name = self.master_app.settings.get("theme", "clam")
+            current_theme_label = ""
+            for label, name in self.master_app.CURATED_THEMES:
+                if name == current_theme_name:
+                    current_theme_label = label
+                    break
+            if current_theme_label and self.theme_var.get() != current_theme_label:
+                self.theme_var.set(current_theme_label)
+        
         if self.top_frame: # Ensure top_frame (parent for summary) exists
             self._build_summary_frame(self.top_frame)
             # print("DashboardTab: Summary frame refreshed.") # Debug print, can be removed

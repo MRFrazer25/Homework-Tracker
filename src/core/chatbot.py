@@ -1,231 +1,354 @@
-from datetime import datetime, timedelta
-from .study_tips import StudyTipsGenerator
+import json
+from datetime import datetime
+from transformers import pipeline
+from langchain.memory import ConversationBufferMemory
+from langchain_community.chat_message_histories import FileChatMessageHistory
+import torch
+import os
 
-class HomeworkChatbot:
-    """AI assistant for homework management and study advice"""
-    
-    def __init__(self, data_handler):
-        self.data_handler = data_handler
-        self.study_tips = StudyTipsGenerator()
-        self.commands = {
-            'help': self.get_help_message, 
-            'tips': self.get_study_tips,
-            'schedule': self.suggest_schedule,
-            'workload': self.analyze_workload,
-            'upcoming': self.show_upcoming,
-            'subjects': self.analyze_subjects,
-            'priorities': self.show_priorities
-        }
-    
-    def process_message(self, message, assignments=None):
-        """
-        Process user message and return appropriate response.
-        
-        Args:
-            message (str): The user's input message.
-            assignments (list, optional): Current list of assignments for context.
+# Define the path for the new persistent chat log
+PERSISTENT_CHAT_LOG_FILE = "data/persistent_chat_log.json"
 
-        Returns:
-            str: The chatbot's response.
-        """
-        # Basic input normalization.
-        # If this chatbot were to interact with powerful LLMs or external APIs,
-        # more thorough input sanitization and validation would be crucial
-        # to prevent prompt injection or other vulnerabilities.
-        message = message.strip().lower()
-        
-        # Check for direct commands
-        if message.startswith('/'):
-            command = message[1:].split()[0]
-            if command in self.commands:
-                # Pass assignments only if the command function expects it (most do)
-                # Help command does not need assignments.
-                if command == 'help':
-                    return self.commands[command]()
-                return self.commands[command](assignments)
-            return self.get_help_message() # Default for unknown slash command
-        
-        # Process natural language queries (simplified for clarity)
-        if 'tip' in message or 'study' in message and ('how' in message or 'advice' in message):
-            return self.get_study_tips(assignments)
-        if 'schedule' in message:
-            return self.suggest_schedule(assignments)
-        if 'workload' in message:
-            return self.analyze_workload(assignments)
-        if 'due' in message or 'upcoming' in message:
-            return self.show_upcoming(assignments)
-        if 'subject' in message or 'class' in message and ('analyze' in message or 'show' in message):
-            return self.analyze_subjects(assignments)
-        if 'priority' in message or 'important' in message and ('show' in message or 'list' in message):
-            return self.show_priorities(assignments)
-        
-        # Default response with help message if no specific query matched
-        return self.get_help_message()
+# --- Model Configuration ---
+# For intent detection: Using a smaller NLI model for zero-shot classification
+# Other options: 'valhalla/distilbart-mnli-12-3', 'facebook/bart-large-mnli' (larger)
+INTENT_MODEL_NAME = "cross-encoder/nli-distilroberta-base"
+# For emotion detection:
+EMOTION_MODEL_NAME = "j-hartmann/emotion-english-distilroberta-base"
 
-    def _get_active_upcoming_assignments(self, assignments):
-        """Helper to filter for active (not completed, future due date) assignments."""
-        if not assignments:
-            return []
-        return [
-            a for a in assignments
-            if not a.get('completed', False) and
-               a.get('due_date') and isinstance(a.get('due_date'), datetime) and
-               a.get('due_date') > datetime.now()
-        ]
-    
-    def get_help_message(self, assignments=None): # Accept assignments=None for consistent command signature
-        """Return help message with available commands."""
-        # assignments argument is not used here but included for signature consistency with other commands.
-        return (
-            "🤖 I'm your homework assistant! Here's what I can help you with:\n\n"
-            "Commands:\n"
-            "/help - Show this help message\n"
-            "/tips - Get study tips for your assignments\n"
-            "/schedule - Get a suggested study schedule\n"
-            "/workload - Analyze your current workload\n"
-            "/upcoming - Show upcoming assignments\n"
-            "/subjects - Analyze assignments by subject\n"
-            "/priorities - Show assignment priorities\n\n"
-            "You can also ask me questions in natural language about:\n"
-            "- Study tips and strategies\n"
-            "- Schedule management\n"
-            "- Workload analysis\n"
-            "- Assignment tracking\n\n"
-            "Example: 'How should I manage my workload?'"
+# Define your application's intents
+# These will be used as candidate labels for the zero-shot classifier
+INTENT_LABELS = [
+    "list assignments",
+    "show assignments",
+    "get study tips",
+    "show priorities",
+    "ask for help",
+    "general greeting",
+    "general farewell",
+    "check schedule",
+    "thank you",
+    "bot status",
+    # "show history" will now be handled by a dialog, not an intent for the bot to respond to directly.
+    # We might keep a simpler "show current session history" if desired, but problem asks for ChatGPT-like history.
+]
+
+# Define how emotions should modify responses (simple approach)
+EMOTION_ADJUSTMENTS = {
+    "joy": "That's great to hear! ",
+    "sadness": "I'm sorry to hear that. ",
+    "anger": "I understand you might be frustrated. ",
+    "fear": "No need to worry, I'm here to help. ",
+    "surprise": "Oh, really? ",
+    "disgust": "Hmm, I see. ",
+    "neutral": ""
+}
+
+# Define the path for chat history
+CHAT_HISTORY_FILE = "data/chat_history.json"
+
+class Chatbot:
+    def __init__(self, assignment_manager, study_tips_generator):
+        self.assignment_manager = assignment_manager
+        self.study_tips_generator = study_tips_generator
+        self.session_id = datetime.now().isoformat() # Unique ID for this app session
+        
+        # Initialize file-based chat message history
+        # This will load history if the file exists, or create an empty one
+        self.message_history = FileChatMessageHistory(file_path=CHAT_HISTORY_FILE)
+        
+        self.memory = ConversationBufferMemory(
+            chat_history=self.message_history, # UPDATED: Use chat_history
+            return_messages=True
         )
-    
-    def get_study_tips(self, assignments):
-        """Get study tips based on current assignments"""
-        if not assignments:
-            return "You don't have any assignments yet. Add some assignments and I'll provide personalized study tips!"
-        
-        active_upcoming = self._get_active_upcoming_assignments(assignments)
-        
-        if not active_upcoming:
-            return "All your assignments are completed or have passed their due dates! Great job! 🎉"
-        
-        # Get most urgent assignment
-        urgent = min(active_upcoming, key=lambda x: x['due_date']) # due_date is confirmed datetime here
-        tips = self.study_tips.get_enhanced_study_tips(assignments, urgent) # Pass all assignments for broader context
-        
-        response = [
-            f"📚 Study Tips for {urgent.get('name', 'N/A')} ({urgent.get('class', 'N/A')}):\n"
-        ]
-        response.extend(f"• {tip}" for tip in tips[:5])  # Show top 5 tips
-        
-        return "\n".join(response)
-    
-    def suggest_schedule(self, assignments):
-        """Suggest a study schedule based on current assignments."""
-        if not assignments:
-            return "Add some assignments first, and I'll help you create a study schedule!"
-        
-        active_upcoming = self._get_active_upcoming_assignments(assignments)
-        if not active_upcoming:
-            return "No active assignments to schedule. Add some or check if they are all past due/completed!"
 
-        schedule = self.study_tips.generate_schedule_suggestion(active_upcoming)
-        return "\n".join(schedule)
-    
-    def analyze_workload(self, assignments):
-        """Analyze current workload based on active assignments."""
-        if not assignments:
-            return "No assignments to analyze. Add some assignments to get workload insights!"
-        
-        active_upcoming = self._get_active_upcoming_assignments(assignments)
-        if not active_upcoming:
-             return "No active assignments to analyze for workload."
+        # Determine device (use GPU if available, otherwise CPU)
+        self.device = 0 if torch.cuda.is_available() else -1
+        print(f"Chatbot: Using device: {'cuda' if self.device == 0 else 'cpu'}")
 
-        warnings = self.study_tips.get_workload_warning(active_upcoming)
-        
-        if not warnings:
-            return "👍 Your current workload for upcoming assignments looks manageable. Keep up the good work!"
-        
-        response = ["⚠️ Workload Analysis for Upcoming Assignments:"]
-        response.extend(warnings)
-        return "\n".join(response)
-    
-    def show_upcoming(self, assignments):
-        """Show upcoming (not completed, future due date) assignments."""
-        if not assignments:
-            return "No assignments found. Add some assignments to track!"
-        
-        active_upcoming = self._get_active_upcoming_assignments(assignments)
-        
-        if not active_upcoming:
-            return "No upcoming assignments! You're all caught up! 🎉"
-        
-        active_upcoming.sort(key=lambda x: x['due_date']) # Sort by due date
-        
-        response = ["📅 Upcoming Assignments:"]
-        for a in active_upcoming[:5]:  # Show top 5 upcoming
-            # Ensure due_date is datetime before calculating days_until
-            days_until = (a['due_date'] - datetime.now()).days
-            response.append(
-                f"• {a.get('name', 'N/A')} ({a.get('class', 'N/A')})\n"
-                f"  Due in {days_until} days - Priority: {a.get('priority', 'N/A')}"
+        try:
+            print(f"Chatbot: Loading intent detection model: {INTENT_MODEL_NAME}...")
+            self.intent_classifier = pipeline(
+                "zero-shot-classification",
+                model=INTENT_MODEL_NAME,
+                device=self.device
             )
-        
-        if len(active_upcoming) > 5:
-            response.append(f"\n...and {len(active_upcoming) - 5} more assignments.")
-        
-        return "\n".join(response)
-    
-    def analyze_subjects(self, assignments):
-        """Analyze active assignments by subject/class."""
-        if not assignments:
-            return "No assignments to analyze. Add some assignments first!"
-        
-        subjects = {}
-        active_assignments_count = 0
-        for a in assignments:
-            if not a.get('completed', False):
-                active_assignments_count +=1
-                subject = a.get('class', 'Uncategorized')
-                subjects[subject] = subjects.get(subject, 0) + 1
-        
-        if not active_assignments_count: # Check if there were any non-completed assignments
-            return "All assignments are completed! Great job! 🎉"
-        if not subjects: # Should not happen if active_assignments_count > 0
-             return "No subjects found in active assignments."
+            print("Chatbot: Intent detection model loaded.")
+        except Exception as e:
+            print(f"Error loading intent model {INTENT_MODEL_NAME}: {e}")
+            self.intent_classifier = None
+            print("Chatbot: Intent detection will be unavailable.")
 
-        response = ["📚 Active Assignments by Subject:"]
-        for subject, count in sorted(subjects.items(), key=lambda x: x[1], reverse=True):
-            response.append(f"• {subject}: {count} assignment(s)")
+        try:
+            print(f"Chatbot: Loading emotion detection model: {EMOTION_MODEL_NAME}...")
+            self.emotion_classifier = pipeline(
+                "text-classification",
+                model=EMOTION_MODEL_NAME,
+                tokenizer=EMOTION_MODEL_NAME, # Explicitly specify tokenizer
+                device=self.device
+            )
+            print("Chatbot: Emotion detection model loaded.")
+        except Exception as e:
+            print(f"Error loading emotion model {EMOTION_MODEL_NAME}: {e}")
+            self.emotion_classifier = None
+            print("Chatbot: Emotion detection will be unavailable.")
+
+        self.command_handlers = {
+            "list assignments": self._handle_list_assignments,
+            "show assignments": self._handle_list_assignments, # Alias
+            "get study tips": self._handle_get_study_tips,
+            "show priorities": self._handle_show_priorities,
+            "check schedule": self._handle_check_schedule,
+            "bot status": lambda _: "I am functioning. My NLU and emotion models are " + \
+                                   ("loaded." if self.intent_classifier and self.emotion_classifier else "not fully loaded."),
+            "thank you": lambda _: "You're welcome!",
+            "general greeting": lambda _: "Hello! How can I help you today?",
+            "general farewell": lambda _: "Goodbye! Have a great day!",
+            "ask for help": self._handle_ask_for_help,
+        }
+
+    def _detect_intent(self, text):
+        if not self.intent_classifier:
+            return "unknown_intent", 0.0
+        try:
+            # Provide context from memory for better intent detection if needed
+            # For now, simple classification of current input
+            result = self.intent_classifier(text, INTENT_LABELS, multi_label=False) # multi_label=False if single intent expected
+            return result['labels'][0], result['scores'][0]
+        except Exception as e:
+            print(f"Error during intent detection: {e}")
+            return "unknown_intent", 0.0
+
+    def _detect_emotion(self, text):
+        if not self.emotion_classifier:
+            return "neutral"
+        try:
+            results = self.emotion_classifier(text)
+            # The model might return a list of dictionaries if top_k > 1 or no top_k specified
+            # Assuming the first result is the most relevant
+            if isinstance(results, list) and results:
+                 # Map model labels (e.g., 'LABEL_0') to human-readable labels if necessary
+                 # For j-hartmann/emotion-english-distilroberta-base, labels are directly 'sadness', 'joy', etc.
+                return results[0]['label'].lower() # ensure lowercase
+            return "neutral" # fallback
+        except Exception as e:
+            print(f"Error during emotion detection: {e}")
+            return "neutral"
+
+    def get_response(self, user_input):
+        # Save user input to memory
+        self.memory.chat_memory.add_user_message(user_input)
+
+        intent, intent_score = self._detect_intent(user_input)
+        emotion = self._detect_emotion(user_input)
+
+        print(f"Chatbot Debug: Input='{user_input}', Detected Intent='{intent}' (Score: {intent_score:.2f}), Emotion='{emotion}'")
+
+        response_prefix = EMOTION_ADJUSTMENTS.get(emotion, "")
+        base_response = ""
+
+        # Confidence threshold for intent
+        CONFIDENCE_THRESHOLD = 0.5 # Lowered slightly for more flexibility with natural language
+
+        if intent_score > CONFIDENCE_THRESHOLD and intent in self.command_handlers:
+            handler = self.command_handlers[intent]
+            # All remaining handlers are called without user_input directly
+            base_response = handler(None) 
+        elif "help" in user_input.lower():
+            base_response = self._handle_ask_for_help(None)
+        elif intent_score > 0.3: # Low confidence but some match
+            base_response = f"I think you might be asking about '{intent}', but I'm not entirely sure. Could you try rephrasing or type 'help'?"
+        else:
+            base_response = "I'm not sure how to respond to that. Could you try rephrasing, or type 'help' for a list of commands?"
+
+
+        final_response = response_prefix + base_response
+
+        # Save bot response to memory
+        self.memory.chat_memory.add_ai_message(final_response)
         
-        return "\n".join(response)
-    
-    def show_priorities(self, assignments):
-        """Show active assignments grouped by priority."""
+        # Save to persistent log for history viewer
+        self._log_interaction_to_persistent_store(user_input, final_response)
+
+        return final_response
+
+    def _log_interaction_to_persistent_store(self, user_input, bot_response):
+        """Logs the user input and bot response to the persistent JSON log file."""
+        log_entry = {
+            "session_id": self.session_id,
+            "timestamp": datetime.now().isoformat(),
+            "user_input": user_input,
+            "bot_response": bot_response
+        }
+        
+        try:
+            log_data = []
+            # Ensure data directory exists (should be handled by settings_manager too)
+            data_dir = os.path.dirname(PERSISTENT_CHAT_LOG_FILE)
+            if not os.path.exists(data_dir) and data_dir:
+                os.makedirs(data_dir)
+
+            if os.path.exists(PERSISTENT_CHAT_LOG_FILE) and os.path.getsize(PERSISTENT_CHAT_LOG_FILE) > 0:
+                with open(PERSISTENT_CHAT_LOG_FILE, 'r', encoding='utf-8') as f:
+                    try:
+                        log_data = json.load(f)
+                        if not isinstance(log_data, list):
+                            log_data = [] # Start fresh if format is incorrect
+                    except json.JSONDecodeError:
+                        log_data = [] # Start fresh if file is corrupted
+            
+            log_data.append(log_entry)
+            
+            with open(PERSISTENT_CHAT_LOG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(log_data, f, indent=4)
+                
+        except Exception as e:
+            print(f"Error logging to persistent chat store: {e}")
+
+    # --- Command Handler Methods ---
+    def _handle_list_assignments(self, _):
+        assignments = self.assignment_manager.get_assignments()
         if not assignments:
-            return "No assignments to analyze. Add some assignments first!"
+            return "You have no assignments. Well done!"
         
-        priorities = {'High': [], 'Medium': [], 'Low': [], 'Other': []}
-        active_assignments_count = 0
-        for a in assignments:
-            if not a.get('completed', False) and a.get('due_date') and isinstance(a.get('due_date'), datetime): # Consider only those with valid due dates
-                active_assignments_count +=1
-                priority_key = a.get('priority', 'Other')
-                if priority_key not in priorities: # Handle unexpected priority values
-                    priority_key = 'Other'
-                priorities[priority_key].append(a)
+        response_lines = ["Here are your current assignments:"]
+        for i, assign in enumerate(assignments):
+            status = "Completed" if assign.get('completed', False) else "Incomplete"
+            due_date_str = assign.get('due_date', 'N/A')
+            if isinstance(due_date_str, datetime):
+                due_date_str = due_date_str.strftime('%Y-%m-%d %H:%M')
+            
+            response_lines.append(f"{i+1}. {assign['name']}:")
+            response_lines.append(f"   - Due: {due_date_str}")
+            response_lines.append(f"   - Priority: {assign.get('priority', 'N/A')}")
+            response_lines.append(f"   - Status: {status}")
+        return "\n".join(response_lines)
+
+    def _handle_get_study_tips(self, _):
+        active_assignments = [
+            a for a in self.assignment_manager.get_assignments() if not a.get('completed')
+        ]
+        if not active_assignments:
+            return "You have no active assignments! Great job. Enjoy your free time!"
+
+        # Use get_workload_warning as it exists and is suitable
+        workload_warnings = self.study_tips_generator.get_workload_warning(active_assignments)
         
-        if not active_assignments_count:
-            return "All assignments are completed or lack valid due dates! Great work! 🎉"
+        response_parts = []
+        if workload_warnings:
+            response_parts.append("Workload Assessment:\n" + "\n".join(workload_warnings))
+        else:
+            response_parts.append("Your workload seems manageable right now.")
+
+        # Add a general study tip since get_enhanced_study_tips requires a specific assignment
+        response_parts.append("General Tip: Remember to take breaks and prioritize your tasks!")
         
-        response = ["🎯 Active Assignments by Priority:"]
+        return "\n\n".join(response_parts)
+
+    def _handle_show_priorities(self, _):
+        assignments = self.assignment_manager.get_assignments()
+        active_assignments = [a for a in assignments if not a.get('completed', False)]
+
+        if not active_assignments:
+            return "No active assignments to prioritize!"
+
+        high = [a['name'] for a in active_assignments if a.get('priority') == 'High']
+        medium = [a['name'] for a in active_assignments if a.get('priority') == 'Medium']
+        low = [a['name'] for a in active_assignments if a.get('priority') == 'Low']
+        other = [a['name'] for a in active_assignments if a.get('priority') not in ['High', 'Medium', 'Low']]
+
+        response_lines = ["Here's a breakdown of your assignment priorities:"]
+        if high:
+            response_lines.append("- High priority:")
+            for name in high: response_lines.append(f"  - {name}")
+        if medium:
+            response_lines.append("- Medium priority:")
+            for name in medium: response_lines.append(f"  - {name}")
+        if low:
+            response_lines.append("- Low priority:")
+            for name in low: response_lines.append(f"  - {name}")
+        if other:
+            response_lines.append("- Other/Uncategorized:")
+            for name in other: response_lines.append(f"  - {name}")
         
-        for priority_level in ['High', 'Medium', 'Low', 'Other']: # Iterate in specific order
-            if priorities[priority_level]:
-                response.append(f"\n{priority_level} Priority:")
-                # Sort by due date before slicing
-                sorted_assignments = sorted(priorities[priority_level], key=lambda x: x['due_date'])
-                for a in sorted_assignments[:3]: # Show top 3 for brevity
-                    days = (a['due_date'] - datetime.now()).days
-                    response.append(
-                        f"• {a.get('name', 'N/A')} ({a.get('class', 'N/A')}) - Due in {days} days"
-                    )
-                if len(sorted_assignments) > 3:
-                    response.append(f"  ...and {len(sorted_assignments) - 3} more.")
+        if not (high or medium or low or other):
+            return "You have active assignments, but none seem to have priority set."
+        return "\n".join(response_lines)
+
+    def _handle_check_schedule(self, _):
+        active_assignments = [
+            a for a in self.assignment_manager.get_assignments() if not a.get('completed')
+        ]
+        if not active_assignments:
+            return "Your schedule looks clear! No upcoming assignments."
         
-        return "\n".join(response)
+        suggestion_list = self.study_tips_generator.generate_schedule_suggestion(active_assignments)
+        if isinstance(suggestion_list, list):
+            return "\n".join(suggestion_list)
+        return str(suggestion_list) # Fallback if it's not a list for some reason
+
+    def _handle_ask_for_help(self, _):
+        help_text = (
+            "I can help you with the following:\n"
+            "- List assignments\n"
+            "- Get study tips: for workload assessment and general advice\n"
+            "- Show priorities: to see a breakdown by priority\n"
+            "- Check schedule: for a suggested study plan\n"
+            "- Bot status: to check my system status\n"
+            "(You can also use the 'History' button in the Chatbot tab to view past conversations.)\n\n"
+            "You can also use the buttons and tabs in the application for detailed actions!"
+        )
+        return help_text
+
+if __name__ == '__main__':
+    # Basic test (requires mock objects for AssignmentManager and StudyTipsGenerator)
+    class MockAssignmentManager:
+        def get_assignments(self):
+            # Example: Hardcoded for now, replace with actual data loading
+            # Ensure this structure matches your actual assignment data for relevant fields.
+            return [
+                {'id': 1, 'name': 'Math Homework', 'due_date': datetime(2024, 1, 15, 17, 0), 'priority': 'High', 'completed': False, 'class': 'Math', 'difficulty': 3},
+                {'id': 2, 'name': 'History Essay', 'due_date': datetime(2024, 1, 20, 23, 59), 'priority': 'Medium', 'completed': True, 'class': 'History', 'difficulty': 5}
+            ]
+
+    class MockStudyTipsGenerator:
+        def generate_study_tip(self, assignments): return "Focus on one task at a time."
+        def generate_workload_warning(self, assignments): return "Your workload seems manageable."
+        def generate_schedule_suggestion(self, assignments): return "Suggested schedule: Math Homework today."
+
+
+    print("Testing Chatbot (this will download models if run for the first time)...")
+    # Ensure you have an internet connection the first time you run this
+    try:
+        # Create a dummy chat history file for testing if it doesn't exist
+        # to avoid FileNotFoundError during test init if data/ isn't there.
+        if not os.path.exists("data"):
+            os.makedirs("data")
+        # No need to explicitly create chat_history.json, FileChatMessageHistory handles it.
+
+        chatbot = Chatbot(MockAssignmentManager(), MockStudyTipsGenerator())
+        
+        test_inputs = [
+            "Hello there!",
+            "What are my assignments?",
+            "I feel pretty happy today.",
+            "Can you give me some study tips?",
+            "show my schedule",
+            "what is my priority tasks",
+            "thank you very much",
+            "I am stressed about my work",
+            "what can you do?",
+            "goodbye"
+        ]
+
+        if chatbot.intent_classifier and chatbot.emotion_classifier: # Only run if models loaded
+            for inp in test_inputs:
+                response = chatbot.get_response(inp)
+                print(f"User: {inp}\nBot: {response}\n---")
+        else:
+            print("Skipping live tests as one or more models failed to load.")
+
+    except Exception as e:
+        print(f"Error during chatbot self-test: {e}")
+        print("Ensure you have an internet connection for the first run to download models.")
+        print("If issues persist, check model names and dependencies (torch, transformers, sentencepiece).")
