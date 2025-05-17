@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates # Ensure this is imported
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 # from ...utils.helpers import format_date # If needed
-from datetime import datetime, timedelta # Added timedelta for sample data
+from datetime import datetime, timedelta, date # Added date import
 from collections import Counter
 
 # Default FALLBACK Matplotlib style parameters if ttkbootstrap colors are unavailable
