@@ -1,0 +1,9 @@
+ttkbootstrap
+Pillow
+matplotlib
+transformers
+torch
+sentencepiece
+langchain
+langchain-community
+babel
