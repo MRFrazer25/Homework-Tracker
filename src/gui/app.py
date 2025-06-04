@@ -31,11 +31,8 @@ CURATED_THEMES_LIST = [
 
 class HomeworkTrackerApp:
     """Main application class for the Homework Tracker."""
+    
     def __init__(self, root, settings):
-        """
-        Initializes the main application.
-        Sets up data handling, assignment management, styles, and UI widgets.
-        """
         self.root = root
         self.settings = settings
         self.data_handler = DataHandler()
@@ -48,57 +45,46 @@ class HomeworkTrackerApp:
         try:
             self.chatbot_instance = Chatbot(self.assignment_manager, self.study_tips_generator)
         except Exception as e:
-            print(f"Failed to initialize Chatbot in App: {e}")
+            print(f"Failed to initialize Chatbot: {e}")
             self.chatbot_instance = None
             messagebox.showerror("Chatbot Initialization Error",
-                                 f"The Chatbot could not be initialized: {e}\r\n"
+                                 f"The Chatbot could not be initialized: {e}\n"
                                  "Chat functionality will be limited.")
         
         self.notebook = None
-        # References to tab instances for potential cross-tab communication or refresh
+        # Tab instances for refresh and cross-tab communication
         self.dashboard_tab_instance = None
         self.assignments_tab_instance = None
         self.statistics_tab_instance = None
         self.calendar_tab_instance = None
         self.chatbot_tab_instance = None
         
-        self._setup_styles()  # ttkbootstrap handles much of this via the Window's theme
+        self._setup_styles()
         self._create_main_widgets()
-        # self.apply_theme() # Initial theme is set by ttkbootstrap.Window in main.py
         self.refresh_themed_widgets()
 
     def _setup_styles(self):
-        """Configures application's visual style. ttkbootstrap handles the base theme.
-           Custom ttk.Style configurations can still be applied if needed for specific widgets
-           not fully covered by the theme, or for custom named styles.
-        """
-        self.style = self.root.style # Get the style object from the ttkbootstrap Window
+        """Configure application visual styles."""
+        self.style = self.root.style
 
         try:
             self.style.configure('Header.TLabel', font=('Helvetica', 16, 'bold'))
         except AttributeError as e:
             if 'object has no attribute \'theme\'' in str(e):
-                print("WARNING: Failed to configure 'Header.TLabel' due to a ttkbootstrap style issue "
-                      "(possibly related to Python version or theme initialization). "
-                      "The 'Header.TLabel' style will not be applied.")
-                print(f"         Details: {e}")
+                print("Warning: Failed to configure 'Header.TLabel' due to ttkbootstrap style issue.")
+                print(f"Details: {e}")
             else:
-                raise # Re-raise if it's a different AttributeError
-        except tk.TclError as e: # Catch TclErrors too if styling fails at that level
-            print(f"WARNING: TclError configuring 'Header.TLabel': {e}. Style may not be applied.")
+                raise
+        except tk.TclError as e:
+            print(f"Warning: TclError configuring 'Header.TLabel': {e}")
         
-        # Treeview.Heading font might be well-handled by ttkbootstrap themes.
-        # Check appearance before re-adding:
         self.style.configure("TNotebook.Tab", font=('Helvetica', 10, 'normal'), padding=[5,2])
-
-        # Accent colors: ttkbootstrap themes have primary, secondary, success, info, warning, danger colors.
-        
         self.style.configure("TButton", padding=5)
 
         self.app_theme_settings = {
-            "date_entry_style": { # For tkcalendar DateEntry
+            "date_entry_style": {
                 "selectbackground": self.style.colors.primary if hasattr(self.style, 'colors') else "#0078D4",
-                "selectforeground": "white", # Assuming primary is dark enough for white text
+                "selectforeground": "white",
             },
             "entry_bg": self.style.colors.get('inputbg') if hasattr(self.style, 'colors') else "white",
             "entry_fg": self.style.colors.get('inputfg') if hasattr(self.style, 'colors') else "black"

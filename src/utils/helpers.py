@@ -142,33 +142,33 @@ DATE_FORMATS = {
 }
 
 def get_class_emoji(class_name):
-    """Get an emoji representing a class."""
+    """Get a text representation for a class."""
     if not isinstance(class_name, str):
-        return '📓' # Default for non-string input
+        return '[DEFAULT]' # Default for non-string input
     
     class_name_lower = class_name.lower()
     # Simple mapping for common classes
-    emoji_map = {
-        'math': '🧮',
-        'mathematics': '🧮',
-        'science': '🔬',
-        'physics': '⚛️',
-        'chemistry': '🧪',
-        'biology': '🧬',
-        'history': '📜',
-        'english': '📚',
-        'literature': '📖',
-        'language': '🗣️',
-        'art': '🎨',
-        'music': '🎵',
-        'computer science': '💻',
-        'programming': '💻',
-        'geography': '🗺️',
-        'philosophy': '🤔',
+    text_map = {
+        'math': '[MATH]',
+        'mathematics': '[MATH]',
+        'science': '[SCIENCE]',
+        'physics': '[PHYSICS]',
+        'chemistry': '[CHEMISTRY]',
+        'biology': '[BIOLOGY]',
+        'history': '[HISTORY]',
+        'english': '[ENGLISH]',
+        'literature': '[LITERATURE]',
+        'language': '[LANGUAGE]',
+        'art': '[ART]',
+        'music': '[MUSIC]',
+        'computer science': '[CS]',
+        'programming': '[CS]',
+        'geography': '[GEOGRAPHY]',
+        'philosophy': '[PHILOSOPHY]',
         # Add more mappings as desired
     }
     # Try to find a match for parts of the class_name as well
-    for keyword, emoji in emoji_map.items():
+    for keyword, text in text_map.items():
         if keyword in class_name_lower:
-            return emoji
-    return '📓'  # Default emoji for unknown classes
+            return text
+    return '[CLASS]'  # Default text for unknown classes

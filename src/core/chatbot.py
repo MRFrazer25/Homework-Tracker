@@ -6,18 +6,15 @@ from langchain_community.chat_message_histories import FileChatMessageHistory
 import torch
 import os
 
-# Define the path for the new persistent chat log
+# File paths
 PERSISTENT_CHAT_LOG_FILE = "data/persistent_chat_log.json"
+CHAT_HISTORY_FILE = "data/chat_history.json"
 
-# Model Configuration
-# For intent detection: Using a smaller NLI model for zero-shot classification
-# Other options: 'valhalla/distilbart-mnli-12-3', 'facebook/bart-large-mnli' (larger)
+# Model configuration
 INTENT_MODEL_NAME = "cross-encoder/nli-distilroberta-base"
-# For emotion detection:
 EMOTION_MODEL_NAME = "j-hartmann/emotion-english-distilroberta-base"
 
-# Define your application's intents
-# These will be used as candidate labels for the zero-shot classifier
+# Intent labels for classification
 INTENT_LABELS = [
     "list assignments",
     "show assignments",
@@ -32,7 +29,7 @@ INTENT_LABELS = [
     # "show history" will now be handled by a dialog, not an intent for the bot to respond to directly.
 ]
 
-# Define how emotions should modify responses (simple approach)
+# Emotion-based response adjustments
 EMOTION_ADJUSTMENTS = {
     "joy": "That's great to hear! ",
     "sadness": "I'm sorry to hear that. ",
@@ -42,9 +39,6 @@ EMOTION_ADJUSTMENTS = {
     "disgust": "Hmm, I see. ",
     "neutral": ""
 }
-
-# Define the path for chat history
-CHAT_HISTORY_FILE = "data/chat_history.json"
 
 class Chatbot:
     def __init__(self, assignment_manager, study_tips_generator):
@@ -61,34 +55,35 @@ class Chatbot:
             return_messages=True
         )
 
-        # Determine device (use GPU if available, otherwise CPU)
+        # Set device for models
         self.device = 0 if torch.cuda.is_available() else -1
         print(f"Chatbot: Using device: {'cuda' if self.device == 0 else 'cpu'}")
 
+        # Load models
         try:
-            print(f"Chatbot: Loading intent detection model: {INTENT_MODEL_NAME}...")
+            print(f"Loading intent detection model...")
             self.intent_classifier = pipeline(
                 "zero-shot-classification",
                 model=INTENT_MODEL_NAME,
                 device=self.device
             )
-            print("Chatbot: Intent detection model loaded.")
+            print("Intent detection model loaded.")
         except Exception as e:
-            print(f"Error loading intent model {INTENT_MODEL_NAME}: {e}")
+            print(f"Error loading intent model: {e}")
             self.intent_classifier = None
             print("Chatbot: Intent detection will be unavailable.")
 
         try:
-            print(f"Chatbot: Loading emotion detection model: {EMOTION_MODEL_NAME}...")
+            print(f"Loading emotion detection model...")
             self.emotion_classifier = pipeline(
                 "text-classification",
                 model=EMOTION_MODEL_NAME,
-                tokenizer=EMOTION_MODEL_NAME, # Explicitly specify tokenizer
+                tokenizer=EMOTION_MODEL_NAME,
                 device=self.device
             )
-            print("Chatbot: Emotion detection model loaded.")
+            print("Emotion detection model loaded.")
         except Exception as e:
-            print(f"Error loading emotion model {EMOTION_MODEL_NAME}: {e}")
+            print(f"Error loading emotion model: {e}")
             self.emotion_classifier = None
             print("Chatbot: Emotion detection will be unavailable.")
 
@@ -110,8 +105,7 @@ class Chatbot:
         if not self.intent_classifier:
             return "unknown_intent", 0.0
         try:
-            # Simple classification of current input
-            result = self.intent_classifier(text, INTENT_LABELS, multi_label=False) # multi_label=False if single intent expected
+            result = self.intent_classifier(text, INTENT_LABELS, multi_label=False)
             return result['labels'][0], result['scores'][0]
         except Exception as e:
             print(f"Error during intent detection: {e}")
@@ -122,13 +116,9 @@ class Chatbot:
             return "neutral"
         try:
             results = self.emotion_classifier(text)
-            # The model might return a list of dictionaries if top_k > 1 or no top_k specified
-            # Assuming the first result is the most relevant
             if isinstance(results, list) and results:
-                 # Map model labels (e.g., 'LABEL_0') to human-readable labels if necessary
-                 # For j-hartmann/emotion-english-distilroberta-base, labels are directly 'sadness', 'joy', etc.
-                return results[0]['label'].lower() # ensure lowercase
-            return "neutral" # fallback
+                return results[0]['label'].lower()
+            return "neutral"
         except Exception as e:
             print(f"Error during emotion detection: {e}")
             return "neutral"
@@ -143,33 +133,30 @@ class Chatbot:
         response_prefix = EMOTION_ADJUSTMENTS.get(emotion, "")
         base_response = ""
 
-        # Confidence threshold for intent
-        CONFIDENCE_THRESHOLD = 0.5 # Lowered slightly for more flexibility with natural language
+        CONFIDENCE_THRESHOLD = 0.5
 
         if intent_score > CONFIDENCE_THRESHOLD and intent in self.command_handlers:
             handler = self.command_handlers[intent]
-            # All remaining handlers are called without user_input directly
             base_response = handler(None) 
         elif "help" in user_input.lower():
             base_response = self._handle_ask_for_help(None)
-        elif intent_score > 0.3: # Low confidence but some match
+        elif intent_score > 0.3:
             base_response = f"I think you might be asking about '{intent}', but I'm not entirely sure. Could you try rephrasing or type 'help'?"
         else:
             base_response = "I'm not sure how to respond to that. Could you try rephrasing, or type 'help' for a list of commands?"
-
 
         final_response = response_prefix + base_response
 
         # Save bot response to memory
         self.memory.chat_memory.add_ai_message(final_response)
         
-        # Save to persistent log for history viewer
+        # Save to persistent log
         self._log_interaction_to_persistent_store(user_input, final_response)
 
         return final_response
 
     def _log_interaction_to_persistent_store(self, user_input, bot_response):
-        """Logs the user input and bot response to the persistent JSON log file."""
+        """Log interaction to persistent JSON file."""
         log_entry = {
             "session_id": self.session_id,
             "timestamp": datetime.now().isoformat(),
@@ -179,7 +166,6 @@ class Chatbot:
         
         try:
             log_data = []
-            # Ensure data directory exists (should be handled by settings_manager too)
             data_dir = os.path.dirname(PERSISTENT_CHAT_LOG_FILE)
             if not os.path.exists(data_dir) and data_dir:
                 os.makedirs(data_dir)
@@ -189,9 +175,9 @@ class Chatbot:
                     try:
                         log_data = json.load(f)
                         if not isinstance(log_data, list):
-                            log_data = [] # Start fresh if format is incorrect
+                            log_data = []
                     except json.JSONDecodeError:
-                        log_data = [] # Start fresh if file is corrupted
+                        log_data = []
             
             log_data.append(log_entry)
             
