@@ -13,7 +13,7 @@ Features
     *   **Chat Assistant**: Interact with a chatbot assistant for help, study tips, and task management.
 
 2.  **Smart Features**:
-    *   **Priority-Based Organization**: Assignments are handled with priority levels (Low, Medium, High, Urgent).
+    *   **Priority-Based Organization**: Assignments are handled with priority levels (Low, Medium, High, Urgent), and the most urgent work is always listed first.
     *   **Personalized Study Tips**: The Chat Assistant can provide study tips.
     *   **Workload Analysis**: Basic workload insights can be provided by the Chat Assistant.
     *   **Progress Tracking**: Track the completion status of your assignments.
@@ -22,7 +22,8 @@ Features
     *   **NLU Powered**: Understands your requests regarding assignments, classes, and scheduling.
     *   **Task Management**: Helps list assignments, find due dates, and understand your schedule.
     *   **Study Support**: Offers study tips and can help analyze workload.
-    *   **Conversational**: Remembers the current conversation context and provides access to persistent chat history.
+    *   **Chat History**: Every conversation is saved and can be browsed with the History button.
+    *   **Works Offline**: Simple commands ("priorities", "schedule", "tips", "list assignments") work through keyword matching even before the models finish loading or without an internet connection.
 
 Chat Assistant Technology
 -------------------------
@@ -30,13 +31,13 @@ Our Chat Assistant utilizes modern Natural Language Understanding (NLU) techniqu
 
 *   **Intent Detection**: Powered by `cross-encoder/nli-distilroberta-base` (Hugging Face Transformers) for zero-shot classification of user commands.
 *   **Emotion Detection**: Employs `j-hartmann/emotion-english-distilroberta-base` (Hugging Face Transformers) to understand user sentiment.
-*   **Conversational Memory**: Uses Langchain's `ConversationBufferMemory` with `FileChatMessageHistory` for session memory and persistent multi-session chat log access.
-*   **Core Libraries**: `transformers`, `torch`, `langchain`, `langchain-community`, `sentencepiece`.
+*   **Background Loading**: The models load in the background, so the app window opens immediately.
+*   **Core Libraries**: `transformers`, `torch`.
 *   **Local First**: All NLU tasks run locally. An internet connection is only needed for the initial download of the transformer models.
 
 Installation
 ------------
-1.  Ensure you have Python 3.8 or newer installed.
+1.  Ensure you have Python 3.10 or newer installed.
 2.  Clone this repository or download the source code.
 3.  Open a terminal or command prompt in the project's root directory.
 4.  Install the required Python packages:
@@ -57,6 +58,13 @@ Usage
     *   **Calendar**: Visually track due dates.
     *   **Statistics**: Analyze your workload and assignment distribution.
     *   **Chat Assistant**: Ask for help, get study tips, or inquire about your schedule.
+
+Running Tests
+-------------
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
 
 Data Storage
 ------------

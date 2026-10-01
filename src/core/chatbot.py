@@ -1,13 +1,13 @@
 import json
-from datetime import datetime
-from transformers import pipeline
-from langchain.memory import ConversationBufferMemory
-from langchain_community.chat_message_histories import FileChatMessageHistory
-import torch
 import os
+import re
+import threading
+from datetime import datetime
+from src.utils.paths import DATA_DIR
+from src.utils.helpers import PRIORITY_RANK, ALLOWED_PRIORITIES
 
-# Define the path for the new persistent chat log
-PERSISTENT_CHAT_LOG_FILE = "data/persistent_chat_log.json"
+# Define the path for the persistent chat log (read by the chat history dialog)
+PERSISTENT_CHAT_LOG_FILE = DATA_DIR / "persistent_chat_log.json"
 
 # --- Model Configuration ---
 # For intent detection: Using a smaller NLI model for zero-shot classification
@@ -44,54 +44,28 @@ EMOTION_ADJUSTMENTS = {
     "neutral": ""
 }
 
-# Define the path for chat history
-CHAT_HISTORY_FILE = "data/chat_history.json"
+# Keyword regex -> intent fallback used when the intent model isn't available. Checked in order.
+KEYWORD_INTENTS = [
+    (r"\btips?\b", "get study tips"),
+    (r"\bpriorit", "show priorities"),
+    (r"\b(schedule|plan)\b", "check schedule"),
+    (r"\b(assignments?|homework|tasks?)\b", "list assignments"),
+    (r"\bstatus\b", "bot status"),
+    (r"\bthanks?\b|\bthank you\b", "thank you"),
+    (r"\b(bye|goodbye)\b", "general farewell"),
+    (r"\b(hi|hello|hey)\b", "general greeting"),
+]
 
 class Chatbot:
     def __init__(self, assignment_manager, study_tips_generator):
         self.assignment_manager = assignment_manager
         self.study_tips_generator = study_tips_generator
         self.session_id = datetime.now().isoformat() # Unique ID for this app session
-        
-        # Initialize file-based chat message history
-        # This will load history if the file exists, or create an empty one
-        self.message_history = FileChatMessageHistory(file_path=CHAT_HISTORY_FILE)
-        
-        self.memory = ConversationBufferMemory(
-            chat_history=self.message_history, # UPDATED: Use chat_history
-            return_messages=True
-        )
 
-        # Determine device (use GPU if available, otherwise CPU)
-        self.device = 0 if torch.cuda.is_available() else -1
-        print(f"Chatbot: Using device: {'cuda' if self.device == 0 else 'cpu'}")
-
-        try:
-            print(f"Chatbot: Loading intent detection model: {INTENT_MODEL_NAME}...")
-            self.intent_classifier = pipeline(
-                "zero-shot-classification",
-                model=INTENT_MODEL_NAME,
-                device=self.device
-            )
-            print("Chatbot: Intent detection model loaded.")
-        except Exception as e:
-            print(f"Error loading intent model {INTENT_MODEL_NAME}: {e}")
-            self.intent_classifier = None
-            print("Chatbot: Intent detection will be unavailable.")
-
-        try:
-            print(f"Chatbot: Loading emotion detection model: {EMOTION_MODEL_NAME}...")
-            self.emotion_classifier = pipeline(
-                "text-classification",
-                model=EMOTION_MODEL_NAME,
-                tokenizer=EMOTION_MODEL_NAME, # Explicitly specify tokenizer
-                device=self.device
-            )
-            print("Chatbot: Emotion detection model loaded.")
-        except Exception as e:
-            print(f"Error loading emotion model {EMOTION_MODEL_NAME}: {e}")
-            self.emotion_classifier = None
-            print("Chatbot: Emotion detection will be unavailable.")
+        # Models are loaded in the background by start_loading_models() so the window opens immediately.
+        self.intent_classifier = None
+        self.emotion_classifier = None
+        self.models_ready = threading.Event()
 
         self.command_handlers = {
             "list assignments": self._handle_list_assignments,
@@ -107,12 +81,59 @@ class Chatbot:
             "ask for help": self._handle_ask_for_help,
         }
 
+    def start_loading_models(self):
+        """Loads the NLU models on a daemon thread. get_response() works (with limited replies) until they finish."""
+        threading.Thread(target=self._load_models, daemon=True).start()
+
+    def _load_models(self):
+        # Stop transformers from loading TensorFlow if it happens to be installed; the models run on PyTorch.
+        os.environ.setdefault("USE_TF", "0")
+        try:
+            # Imported here because torch/transformers take several seconds to import.
+            import torch
+            from transformers import pipeline
+        except Exception as e:
+            print(f"Chatbot: Could not import transformers/torch: {e}")
+            self.models_ready.set()
+            return
+
+        # Determine device (use GPU if available, otherwise CPU)
+        device = 0 if torch.cuda.is_available() else -1
+        print(f"Chatbot: Using device: {'cuda' if device == 0 else 'cpu'}")
+
+        try:
+            print(f"Chatbot: Loading intent detection model: {INTENT_MODEL_NAME}...")
+            self.intent_classifier = pipeline(
+                "zero-shot-classification",
+                model=INTENT_MODEL_NAME,
+                device=device,
+                framework="pt"
+            )
+            print("Chatbot: Intent detection model loaded.")
+        except Exception as e:
+            print(f"Error loading intent model {INTENT_MODEL_NAME}: {e}")
+            print("Chatbot: Intent detection will be unavailable.")
+
+        try:
+            print(f"Chatbot: Loading emotion detection model: {EMOTION_MODEL_NAME}...")
+            self.emotion_classifier = pipeline(
+                "text-classification",
+                model=EMOTION_MODEL_NAME,
+                tokenizer=EMOTION_MODEL_NAME, # Explicitly specify tokenizer
+                device=device,
+                framework="pt"
+            )
+            print("Chatbot: Emotion detection model loaded.")
+        except Exception as e:
+            print(f"Error loading emotion model {EMOTION_MODEL_NAME}: {e}")
+            print("Chatbot: Emotion detection will be unavailable.")
+
+        self.models_ready.set()
+
     def _detect_intent(self, text):
         if not self.intent_classifier:
             return "unknown_intent", 0.0
         try:
-            # Provide context from memory for better intent detection if needed
-            # For now, simple classification of current input
             result = self.intent_classifier(text, INTENT_LABELS, multi_label=False) # multi_label=False if single intent expected
             return result['labels'][0], result['scores'][0]
         except Exception as e:
@@ -135,10 +156,15 @@ class Chatbot:
             print(f"Error during emotion detection: {e}")
             return "neutral"
 
-    def get_response(self, user_input):
-        # Save user input to memory
-        self.memory.chat_memory.add_user_message(user_input)
+    def _match_keyword_intent(self, text):
+        """Simple keyword fallback used while the models load, if they failed to load, or when they're unsure."""
+        lowered = text.lower()
+        for pattern, intent in KEYWORD_INTENTS:
+            if re.search(pattern, lowered):
+                return intent
+        return None
 
+    def get_response(self, user_input):
         intent, intent_score = self._detect_intent(user_input)
         emotion = self._detect_emotion(user_input)
 
@@ -149,13 +175,20 @@ class Chatbot:
 
         # Confidence threshold for intent
         CONFIDENCE_THRESHOLD = 0.5 # Lowered slightly for more flexibility with natural language
+        # Used when the model is unavailable or not confident enough
+        keyword_intent = self._match_keyword_intent(user_input)
 
         if intent_score > CONFIDENCE_THRESHOLD and intent in self.command_handlers:
             handler = self.command_handlers[intent]
             # All remaining handlers are called without user_input directly
-            base_response = handler(None) 
+            base_response = handler(None)
+        elif keyword_intent:
+            base_response = self.command_handlers[keyword_intent](None)
         elif "help" in user_input.lower():
             base_response = self._handle_ask_for_help(None)
+        elif not self.models_ready.is_set():
+            base_response = ("I'm still loading my language models (the first run downloads them, which can take a minute). "
+                             "Simple commands like 'list assignments', 'priorities', 'schedule', or 'help' work in the meantime.")
         elif intent_score > 0.3: # Low confidence but some match
             base_response = f"I think you might be asking about '{intent}', but I'm not entirely sure. Could you try rephrasing or type 'help'?"
         else:
@@ -164,9 +197,6 @@ class Chatbot:
 
         final_response = response_prefix + base_response
 
-        # Save bot response to memory
-        self.memory.chat_memory.add_ai_message(final_response)
-        
         # Save to persistent log for history viewer
         self._log_interaction_to_persistent_store(user_input, final_response)
 
@@ -183,12 +213,9 @@ class Chatbot:
         
         try:
             log_data = []
-            # Ensure data directory exists (should be handled by settings_manager too)
-            data_dir = os.path.dirname(PERSISTENT_CHAT_LOG_FILE)
-            if not os.path.exists(data_dir) and data_dir:
-                os.makedirs(data_dir)
+            PERSISTENT_CHAT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-            if os.path.exists(PERSISTENT_CHAT_LOG_FILE) and os.path.getsize(PERSISTENT_CHAT_LOG_FILE) > 0:
+            if PERSISTENT_CHAT_LOG_FILE.exists() and PERSISTENT_CHAT_LOG_FILE.stat().st_size > 0:
                 with open(PERSISTENT_CHAT_LOG_FILE, 'r', encoding='utf-8') as f:
                     try:
                         log_data = json.load(f)
@@ -240,9 +267,16 @@ class Chatbot:
         else:
             response_parts.append("Your workload seems manageable right now.")
 
-        # Add a general study tip since get_enhanced_study_tips requires a specific assignment
-        response_parts.append("General Tip: Remember to take breaks and prioritize your tasks!")
-        
+        # Tailor tips to the most pressing assignment: highest priority first, then earliest due date.
+        focus = min(
+            active_assignments,
+            key=lambda a: (-PRIORITY_RANK.get(a.get('priority'), 0),
+                           a['due_date'] if isinstance(a.get('due_date'), datetime) else datetime.max)
+        )
+        tips = self.study_tips_generator.get_enhanced_study_tips(active_assignments, focus)
+        response_parts.append(f"Tips for '{focus.get('name', 'your next assignment')}':\n" +
+                              "\n".join(f"- {tip}" for tip in tips[:4]))
+
         return "\n\n".join(response_parts)
 
     def _handle_show_priorities(self, _):
@@ -252,27 +286,19 @@ class Chatbot:
         if not active_assignments:
             return "No active assignments to prioritize!"
 
-        high = [a['name'] for a in active_assignments if a.get('priority') == 'High']
-        medium = [a['name'] for a in active_assignments if a.get('priority') == 'Medium']
-        low = [a['name'] for a in active_assignments if a.get('priority') == 'Low']
-        other = [a['name'] for a in active_assignments if a.get('priority') not in ['High', 'Medium', 'Low']]
-
         response_lines = ["Here's a breakdown of your assignment priorities:"]
-        if high:
-            response_lines.append("- High priority:")
-            for name in high: response_lines.append(f"  - {name}")
-        if medium:
-            response_lines.append("- Medium priority:")
-            for name in medium: response_lines.append(f"  - {name}")
-        if low:
-            response_lines.append("- Low priority:")
-            for name in low: response_lines.append(f"  - {name}")
+        # Most urgent first
+        for priority in reversed(ALLOWED_PRIORITIES):
+            names = [a['name'] for a in active_assignments if a.get('priority') == priority]
+            if names:
+                response_lines.append(f"- {priority} priority:")
+                response_lines.extend(f"  - {name}" for name in names)
+
+        other = [a['name'] for a in active_assignments if a.get('priority') not in ALLOWED_PRIORITIES]
         if other:
             response_lines.append("- Other/Uncategorized:")
-            for name in other: response_lines.append(f"  - {name}")
-        
-        if not (high or medium or low or other):
-            return "You have active assignments, but none seem to have priority set."
+            response_lines.extend(f"  - {name}" for name in other)
+
         return "\n".join(response_lines)
 
     def _handle_check_schedule(self, _):

@@ -115,19 +115,23 @@ def get_priority_color(priority):
     Get a theme-friendly color associated with a priority level for a light theme.
     
     Args:
-        priority (str): Priority level ('High', 'Medium', or 'Low').
-    
+        priority (str): Priority level ('Urgent', 'High', 'Medium', or 'Low').
+
     Returns:
         str: Hex color code.
     """
-    # Updated vibrant colors
-    return {
-        'High': '#FF6347',    # Tomato
-        'Medium': '#FFA500',  # Orange
-        'Low': '#32CD32',     # LimeGreen
-    }.get(str(priority).capitalize(), '#A9A9A9')  # DarkGray for unknown or default
+    return PRIORITY_COLORS.get(str(priority).capitalize(), '#A9A9A9')  # DarkGray for unknown or default
 
+# Ordered lowest to highest.
 ALLOWED_PRIORITIES = ["Low", "Medium", "High", "Urgent"]
+# Higher rank = more important. Unknown priorities should default to 0.
+PRIORITY_RANK = {p: i + 1 for i, p in enumerate(ALLOWED_PRIORITIES)}
+PRIORITY_COLORS = {
+    'Urgent': '#C71585',  # MediumVioletRed
+    'High': '#FF6347',    # Tomato
+    'Medium': '#FFA500',  # Orange
+    'Low': '#32CD32',     # LimeGreen
+}
 ALLOWED_DIFFICULTY = list(range(1, 11))
 
 # Date formats for use with ttkbootstrap.DateEntry and strptime/strftime
@@ -142,35 +146,3 @@ DATE_FORMATS = {
     'verbose': '%B %d, %Y', # e.g., July 04, 2024
     'verbose_with_day': '%A, %B %d, %Y' # e.g., Thursday, July 04, 2024
 }
-
-def get_class_emoji(class_name):
-    """Get an emoji representing a class."""
-    if not isinstance(class_name, str):
-        return '📓' # Default for non-string input
-    
-    class_name_lower = class_name.lower()
-    # Simple mapping for common classes
-    emoji_map = {
-        'math': '🧮',
-        'mathematics': '🧮',
-        'science': '🔬',
-        'physics': '⚛️',
-        'chemistry': '🧪',
-        'biology': '🧬',
-        'history': '📜',
-        'english': '📚',
-        'literature': '📖',
-        'language': '🗣️',
-        'art': '🎨',
-        'music': '🎵',
-        'computer science': '💻',
-        'programming': '💻',
-        'geography': '🗺️',
-        'philosophy': '🤔',
-        # Add more mappings as desired
-    }
-    # Try to find a match for parts of the class_name as well
-    for keyword, emoji in emoji_map.items():
-        if keyword in class_name_lower:
-            return emoji
-    return '📓'  # Default emoji for unknown classes

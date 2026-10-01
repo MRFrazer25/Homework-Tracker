@@ -1,9 +1,5 @@
-ttkbootstrap
-Pillow
-matplotlib
-transformers
-torch
-sentencepiece
-langchain
-langchain-community
-babel
+ttkbootstrap>=1.10,<2
+Pillow>=10.0
+matplotlib>=3.7
+transformers>=4.40
+torch>=2.2

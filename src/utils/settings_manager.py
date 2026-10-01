@@ -1,14 +1,14 @@
 import json
-import os
+from src.utils.paths import DATA_DIR
 
-SETTINGS_FILE = "data/settings.json"
-DEFAULT_THEME = "clam"
+SETTINGS_FILE = DATA_DIR / "settings.json"
+DEFAULT_THEME = "litera" # Must be a ttkbootstrap theme name
 
 def load_app_settings():
     """Loads application settings from a JSON file."""
-    if os.path.exists(SETTINGS_FILE):
+    if SETTINGS_FILE.exists():
         try:
-            with open(SETTINGS_FILE, 'r') as f:
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 settings = json.load(f)
                 if not isinstance(settings, dict): # Basic validation
                     print(f"Warning: {SETTINGS_FILE} does not contain a valid dictionary. Using defaults.")
@@ -32,13 +32,8 @@ def load_app_settings():
 def save_app_settings(settings_dict):
     """Saves application settings to a JSON file."""
     try:
-        # Ensure the data directory exists
-        data_dir = os.path.dirname(SETTINGS_FILE)
-        if not os.path.exists(data_dir) and data_dir: # Check if data_dir is not empty string
-            os.makedirs(data_dir)
-            print(f"Created directory: {data_dir}")
-        
-        with open(SETTINGS_FILE, 'w') as f:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
             json.dump(settings_dict, f, indent=4)
         print(f"Settings saved to {SETTINGS_FILE}")
     except Exception as e:

@@ -16,9 +16,7 @@ class AssignmentManager:
 
     def _calculate_last_id(self):
         """Calculates the last used ID from loaded assignments."""
-        if not self.assignments:
-            return 0
-        return max(assignment.get('id', 0) for assignment in self.assignments if isinstance(assignment.get('id'), int))
+        return max((a['id'] for a in self.assignments if isinstance(a.get('id'), int)), default=0)
 
     def _generate_id(self):
         """Generates a new unique ID for an assignment."""
@@ -175,6 +173,20 @@ class AssignmentManager:
                 assignment_to_toggle['completed'] = not assignment_to_toggle['completed']
                 return False, "Error: Failed to save assignments after toggling completion."
         return False, f"Error: Assignment with ID '{assignment_id}' not found for toggling completion."
+
+    def set_completion(self, assignment_id, completed):
+        """
+        Sets the 'completed' status of an assignment to an explicit value.
+
+        Returns:
+            tuple: (bool_success, message_string)
+        """
+        assignment = self.get_assignment_by_id(assignment_id)
+        if not assignment:
+            return False, f"Error: Assignment with ID '{assignment_id}' not found."
+        if bool(assignment.get('completed', False)) == bool(completed):
+            return True, "Completion status unchanged."
+        return self.toggle_completion(assignment_id)
 
     def get_assignment_by_id(self, assignment_id):
         """Retrieves an assignment by its ID."""

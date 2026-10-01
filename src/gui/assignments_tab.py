@@ -1,19 +1,19 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, Text 
+from tkinter import ttk, messagebox
 from ttkbootstrap.widgets import DateEntry # Use ttkbootstrap DateEntry
 from datetime import datetime, date # Ensure date is imported
 from src.utils.helpers import format_date, ALLOWED_PRIORITIES, ALLOWED_DIFFICULTY, DATE_FORMATS # Import our defined DATE_FORMATS
+from src.core.data_handler import DUE_TIME
 
 class AddAssignmentDialog(tk.Toplevel):
     """Dialog for adding or editing an assignment."""
-    def __init__(self, parent, app_callbacks, theme_settings_provider, assignment_to_edit=None):
+    def __init__(self, parent, app_callbacks, assignment_to_edit=None):
         """
         Initializes the Add/Edit Assignment dialog.
         
         Args:
             parent: The parent widget.
             app_callbacks: Dictionary of callbacks to the main application.
-            theme_settings_provider: Callable that returns current theme settings.
             assignment_to_edit (dict, optional): Assignment data to pre-fill for editing.
         """
         super().__init__(parent)
@@ -21,7 +21,6 @@ class AddAssignmentDialog(tk.Toplevel):
         self.grab_set() # Make the dialog modal.
         
         self.app_callbacks = app_callbacks
-        self.theme_settings_provider = theme_settings_provider 
         self.assignment_to_edit = assignment_to_edit
         self.result = None # Stores the assignment data if saved.
 
@@ -34,7 +33,6 @@ class AddAssignmentDialog(tk.Toplevel):
         self.difficulty_var = tk.IntVar(value=5 if ALLOWED_DIFFICULTY else 5) # Default
         self.completed_var = tk.BooleanVar(value=False)
         # Due date will be handled by DateEntry directly
-        # Details will be handled by Text widget directly
 
         due_date_initial = datetime.now().date() # Default to today's date object
 
@@ -83,10 +81,6 @@ class AddAssignmentDialog(tk.Toplevel):
         """Creates and lays out the form widgets for the dialog."""
         form_frame = ttk.Frame(self, padding="15")
         form_frame.pack(expand=True, fill="both")
-
-        current_theme_settings = self.theme_settings_provider()
-        entry_bg = current_theme_settings.get("entry_bg", "white")
-        entry_fg = current_theme_settings.get("entry_fg", "black")
 
         # Field: Name
         ttk.Label(form_frame, text="Name:").grid(row=0, column=0, sticky="w", pady=3, padx=5)
@@ -180,16 +174,14 @@ class AddAssignmentDialog(tk.Toplevel):
         self.result = {
             "name": name,
             "class": klass,
-            "due_date": datetime.combine(due_date_obj, datetime.min.time()), # Store as datetime object
+            "due_date": datetime.combine(due_date_obj, DUE_TIME), # Due at the end of the chosen day
             "priority": priority,
             "difficulty": difficulty,
             "completed": self.completed_var.get()
         }
         
-        if self.assignment_to_edit: # If editing, retain original ID and completed status
-            if "id" in self.assignment_to_edit:
-                self.result["id"] = self.assignment_to_edit["id"]
-            self.result["completed"] = self.assignment_to_edit.get("completed", False)
+        if self.assignment_to_edit and "id" in self.assignment_to_edit: # If editing, retain original ID
+            self.result["id"] = self.assignment_to_edit["id"]
 
         self.destroy()
 
@@ -290,10 +282,10 @@ class AssignmentsTab(ttk.Frame):
         self.delete_button = ttk.Button(button_frame, text="Delete Selected", command=self._delete_selected_assignment, state="disabled")
         self.delete_button.pack(side="left", padx=5)
 
-        self.mark_complete_button = ttk.Button(button_frame, text="Mark Complete", command=lambda: self._toggle_selected_completion(True), state="disabled")
+        self.mark_complete_button = ttk.Button(button_frame, text="Mark Complete", command=lambda: self._set_selected_completion(True), state="disabled")
         self.mark_complete_button.pack(side="left", padx=5)
 
-        self.mark_incomplete_button = ttk.Button(button_frame, text="Mark Incomplete", command=lambda: self._toggle_selected_completion(False), state="disabled")
+        self.mark_incomplete_button = ttk.Button(button_frame, text="Mark Incomplete", command=lambda: self._set_selected_completion(False), state="disabled")
         self.mark_incomplete_button.pack(side="left", padx=5)
         
         # Initial population and event bindings
@@ -354,11 +346,7 @@ class AssignmentsTab(ttk.Frame):
 
     def open_add_assignment_dialog(self):
         """Opens the dialog to add a new assignment."""
-        # Get the theme provider callback from the main app instance.
-        # self.master is the notebook, self.master.master is HomeworkTrackerApp.
-        theme_provider_callback = getattr(self.master.master, 'get_current_theme_settings', lambda: {})
-        
-        dialog = AddAssignmentDialog(self, self.app_callbacks, theme_provider_callback)
+        dialog = AddAssignmentDialog(self, self.app_callbacks)
         if dialog.result: # User clicked "Save" and data is valid
             new_assignment_data = dialog.result
             add_assignment_callback = self.app_callbacks.get('add_assignment')
@@ -371,7 +359,7 @@ class AssignmentsTab(ttk.Frame):
 
     def on_assignment_double_click(self, event):
         """Handles double-clicking an assignment to edit it."""
-        self._edit_selected_assignment() # MODIFIED to call _edit_selected_assignment
+        self._edit_selected_assignment()
 
     def _get_selected_assignment_object(self):
         """Helper to get the full assignment object for the currently focused treeview item."""
@@ -403,20 +391,18 @@ class AssignmentsTab(ttk.Frame):
         else:
             messagebox.showerror("Configuration Error", "Delete assignment callback not configured.", parent=self.winfo_toplevel())
 
-    def _toggle_selected_completion(self, mark_completed):
-        """Handles toggling the completion status of the selected assignment."""
+    def _set_selected_completion(self, mark_completed):
+        """Marks the selected assignment complete or incomplete."""
         selected_assignment = self._get_selected_assignment_object()
         if not selected_assignment:
             return
             
-        toggle_callback = self.app_callbacks.get('toggle_completion')
-        if toggle_callback:
-            # The app.py handler will manage the toggle and refresh.
-            # It expects the assignment object.
-            toggle_callback(selected_assignment)
-            # self.update_assignments_list() # app.py's refresh_all_tabs will handle this
+        set_completion_callback = self.app_callbacks.get('set_completion')
+        if set_completion_callback:
+            # The app.py handler will update the assignment and refresh all tabs.
+            set_completion_callback(selected_assignment, mark_completed)
         else:
-            messagebox.showerror("Configuration Error", "Toggle completion callback not configured.", parent=self.winfo_toplevel())
+            messagebox.showerror("Configuration Error", "Completion callback not configured.", parent=self.winfo_toplevel())
 
     def on_tree_select(self, event=None):
         """Updates button states based on Treeview selection."""
@@ -431,16 +417,11 @@ class AssignmentsTab(ttk.Frame):
     def _edit_selected_assignment(self):
         """Opens the Add/Edit dialog for the currently selected assignment."""
         selected_assignment_obj = self._get_selected_assignment_object()
-        if not selected_assignment_obj:
-            messagebox.showinfo("Edit Assignment", "Please select an assignment to edit.", parent=self)
+        if not selected_assignment_obj: # Helper already told the user to select one
             return
 
-        # Get the theme provider callback from the main app instance.
-        # self.master is the notebook, self.master.master is HomeworkTrackerApp.
-        theme_provider_callback = getattr(self.master.master, 'get_current_theme_settings', lambda: {})
-
         # The AddAssignmentDialog is reused for editing
-        dialog = AddAssignmentDialog(self, self.app_callbacks, theme_provider_callback, assignment_to_edit=selected_assignment_obj)
+        dialog = AddAssignmentDialog(self, self.app_callbacks, assignment_to_edit=selected_assignment_obj)
         
         if dialog.result: # User clicked Save
             # The dialog result should already include the original ID if editing

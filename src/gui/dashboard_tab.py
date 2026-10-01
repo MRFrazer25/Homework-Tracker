@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta # If needed for summaries
 import tkinter.font as tkFont # ADDED IMPORT
-from src.utils.helpers import get_priority_color # Import the helper
+from src.utils.helpers import get_priority_color, PRIORITY_RANK
 
 class DashboardTab(ttk.Frame):
     """Tab for displaying a dashboard overview, including upcoming assignments."""
@@ -52,8 +52,7 @@ class DashboardTab(ttk.Frame):
                 ]
                 if assignments_for_day:
                     # Sort assignments for the day by priority (optional, but good for consistency)
-                    priority_map = {'High': 3, 'Medium': 2, 'Low': 1}
-                    assignments_for_day.sort(key=lambda x: priority_map.get(x.get('priority', 'Low'), 0), reverse=True)
+                    assignments_for_day.sort(key=lambda x: PRIORITY_RANK.get(x.get('priority'), 0), reverse=True)
                     upcoming_assignments_next_7_days.append({'date': current_day, 'tasks': assignments_for_day})
 
         if not upcoming_assignments_next_7_days:
@@ -103,7 +102,7 @@ class DashboardTab(ttk.Frame):
             theme_labels = [label for label, name in self.master_app.CURATED_THEMES]
             self.theme_combobox = ttk.Combobox(header_controls_frame, textvariable=self.theme_var, values=theme_labels, state="readonly", width=25)
             
-            current_theme_name = self.master_app.settings.get("theme", "clam")
+            current_theme_name = self.master_app.settings.get("theme", "litera")
             current_theme_label = ""
             for label, name in self.master_app.CURATED_THEMES:
                 if name == current_theme_name:
@@ -138,7 +137,7 @@ class DashboardTab(ttk.Frame):
         Called on initialization and when data changes (via app's refresh_all_tabs).
         """
         if self.master_app and hasattr(self.master_app, 'settings') and hasattr(self.master_app, 'CURATED_THEMES') and hasattr(self, 'theme_combobox'):
-            current_theme_name = self.master_app.settings.get("theme", "clam")
+            current_theme_name = self.master_app.settings.get("theme", "litera")
             current_theme_label = ""
             for label, name in self.master_app.CURATED_THEMES:
                 if name == current_theme_name:

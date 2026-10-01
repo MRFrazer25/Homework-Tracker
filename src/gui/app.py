@@ -53,11 +53,12 @@ class HomeworkTrackerApp:
 
         try:
             self.chatbot_instance = Chatbot(self.assignment_manager, self.study_tips_generator)
+            self.chatbot_instance.start_loading_models()
         except Exception as e:
             print(f"Failed to initialize Chatbot in App: {e}")
             self.chatbot_instance = None
             messagebox.showerror("Chatbot Initialization Error",
-                                 f"The Chatbot could not be initialized: {e}\\n"
+                                 f"The Chatbot could not be initialized: {e}\n"
                                  "Chat functionality will be limited.")
         
         self.notebook = None
@@ -70,7 +71,6 @@ class HomeworkTrackerApp:
         
         self._setup_styles()  # ttkbootstrap handles much of this via the Window's theme
         self._create_main_widgets()
-        self._create_menu()
         # self.apply_theme() # Initial theme is set by ttkbootstrap.Window in main.py
         self.refresh_themed_widgets()
 
@@ -173,7 +173,7 @@ class HomeworkTrackerApp:
             'edit_assignment': self.handle_edit_assignment_request,
             'add_assignment': self.handle_add_assignment_request,
             'delete_assignment': self.handle_delete_assignment_request,
-            'toggle_completion': self.handle_toggle_completion_request,
+            'set_completion': self.handle_set_completion_request,
             'refresh_all_tabs': self.refresh_all_tabs,
             'get_theme_settings': self.get_current_theme_settings, # Crucial for dialogs/custom tk widgets
             'get_master_app': lambda: self,
@@ -314,14 +314,14 @@ class HomeworkTrackerApp:
                 messagebox.showerror("Error", err_msg, parent=self.root)
             self.refresh_all_tabs() # Always refresh
     
-    def handle_toggle_completion_request(self, assignment_obj):
-        """Handles request to toggle completion status. Expects assignment_obj with 'id'."""
+    def handle_set_completion_request(self, assignment_obj, completed):
+        """Handles request to mark an assignment complete/incomplete. Expects assignment_obj with 'id'."""
         assignment_id = assignment_obj.get('id')
         if not assignment_id:
-            messagebox.showerror("Error", "Cannot toggle completion: ID missing.", parent=self.root)
+            messagebox.showerror("Error", "Cannot update completion: ID missing.", parent=self.root)
             return
 
-        success, message = self.assignment_manager.toggle_completion(assignment_id)
+        success, message = self.assignment_manager.set_completion(assignment_id, completed)
         if success:
             # No specific success message for toggle, refresh will show change.
             pass

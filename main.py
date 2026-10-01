@@ -1,14 +1,17 @@
 """Main script to launch the Homework Tracker application."""
 
+import sys
 import tkinter as tk
-# from ttkthemes import ThemedTk # No longer using ttkthemes
 import ttkbootstrap as ttkbs # Import ttkbootstrap
 from src.gui.app import HomeworkTrackerApp
 from src.utils.settings_manager import load_app_settings, save_app_settings
 
 def main():
     """Main entry point for the Homework Tracker application"""
-    
+    # Windows consoles can't print every character (e.g. from chat input); don't let a debug print crash the app.
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+
     settings = load_app_settings()
     initial_theme_name = settings.get("theme", "litera") 
 

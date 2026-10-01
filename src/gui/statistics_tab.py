@@ -5,6 +5,9 @@ import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from datetime import datetime, timedelta, date
 from collections import Counter
+from src.utils.helpers import ALLOWED_PRIORITIES, PRIORITY_COLORS
+
+TIMELINE_DAYS = 30
 
 # Default FALLBACK Matplotlib style parameters if ttkbootstrap colors are unavailable
 LIGHT_MPL_STYLE_FALLBACK = {
@@ -291,7 +294,8 @@ class StatisticsTab(ttk.Frame):
 
     def _create_priority_chart(self, ax, assignments):
         """Creates a pie chart of assignment priorities."""
-        priority_counts = {"High": 0, "Medium": 0, "Low": 0, "Other": 0}
+        priority_counts = {p: 0 for p in reversed(ALLOWED_PRIORITIES)}
+        priority_counts["Other"] = 0
         for a in assignments:
             p = a.get('priority', 'Other')
             if p in priority_counts:
@@ -311,8 +315,7 @@ class StatisticsTab(ttk.Frame):
         values = list(active_priorities.values())
         
         # Vibrant colors
-        colors_map = {'High': '#FF6347', 'Medium': '#FFA500', 'Low': '#32CD32', 'Other': '#778899'} # Tomato, Orange, LimeGreen, LightSlateGray
-        pie_colors = [colors_map.get(label, '#778899') for label in labels]
+        pie_colors = [PRIORITY_COLORS.get(label, '#778899') for label in labels] # LightSlateGray for Other
 
         # Determine text color based on theme for autopct and labels
         text_color = plt.rcParams.get('text.color', 'black') # Default to black if not found
@@ -328,65 +331,32 @@ class StatisticsTab(ttk.Frame):
         ax.set_title('Assignments by Priority') # Title color is handled by general ax settings
         
     def _create_category_chart(self, ax, assignments):
-        """Creates a bar chart of assignment categories (using 'class' as category)."""
-
-        if not assignments:
-            ax.text(0.5, 0.5, "No assignment data for priority bar chart.", ha='center', va='center', fontsize=self.axis_label_font_size, color=self.text_color)
+        """Creates a horizontal bar chart of active vs. completed assignments per class."""
+        class_counts = Counter((a.get('class') or 'Uncategorized') for a in assignments)
+        if not class_counts:
+            ax.text(0.5, 0.5, "No class data to display.", ha='center', va='center', transform=ax.transAxes, fontsize=self.axis_label_font_size, color=self.text_color)
             ax.set_xticks([])
             ax.set_yticks([])
-            ax.set_title('Assignments by Priority', color=self.text_color, fontsize=self.chart_font_size)
+            ax.set_title('Assignments by Class', color=self.text_color, fontsize=self.chart_font_size)
             return
 
-        # Count assignments by priority
-        priority_counts_counter = Counter([asn.get('priority', 'N/A') for asn in assignments])
+        # Show the 8 busiest classes, largest at the top
+        top_classes = [name for name, _ in class_counts.most_common(8)][::-1]
+        completed = [sum(1 for a in assignments if (a.get('class') or 'Uncategorized') == c and a.get('completed', False)) for c in top_classes]
+        active = [class_counts[c] - done for c, done in zip(top_classes, completed)]
 
-        # Sort by a defined priority order (High, Medium, Low, N/A)
-        priority_order = {'High': 0, 'Medium': 1, 'Low': 2, 'N/A': 3}
-        
-        # Filter out priorities not present in data and sort
-        sorted_priorities = sorted(
-            priority_counts_counter.items(), 
-            key=lambda item: priority_order.get(item[0], 99) # Sort by defined order, others last
-        )
-        
-        if not sorted_priorities:
-            ax.text(0.5, 0.5, "No priority data to display.", ha='center', va='center', fontsize=self.axis_label_font_size, color=self.text_color)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_title('Assignments by Priority', color=self.text_color, fontsize=self.chart_font_size)
-            return
-            
-        labels = [item[0] for item in sorted_priorities]
-        values = [item[1] for item in sorted_priorities]
+        colors = self.app_instance.root.style.colors
+        ax.barh(top_classes, active, color=colors.primary, label='Active')
+        ax.barh(top_classes, completed, left=active, color=colors.secondary, label='Completed')
 
-        # Define a color map for priorities using ttkbootstrap theme colors
-        priority_color_map = {
-            'High': self.app_instance.root.style.colors.danger,
-            'Medium': self.app_instance.root.style.colors.warning,
-            'Low': self.app_instance.root.style.colors.success,
-            'N/A': self.app_instance.root.style.colors.secondary
-        }
-        bar_colors = [priority_color_map.get(label, self.app_instance.root.style.colors.primary) for label in labels]
-
-        # ax.clear() # Clearing is now handled by refresh_charts() before calling this.
-        ax.bar(labels, values, color=bar_colors)
-        
-        ax.set_title('Assignments by Priority', color=self.text_color, fontsize=self.chart_font_size)
-        ax.set_ylabel('Number of Assignments', color=self.text_color, fontsize=self.axis_label_font_size)
-        ax.tick_params(axis='x', colors=self.text_color, labelsize=self.tick_label_font_size, rotation=0) # No rotation for few priority labels
-        ax.tick_params(axis='y', colors=self.text_color, labelsize=self.tick_label_font_size)
-        ax.grid(axis='y', linestyle='--', alpha=0.7, color=self.grid_color)
-        # ax.set_facecolor(self.plot_bg_color) # Already set by on_theme_changed or refresh_charts
-
-        # Add text labels on top of bars
-        for i, v in enumerate(values):
-            ax.text(i, v + 0.05 * max(values) if values else 0.1, str(v), color=self.text_color, ha='center', va='bottom', fontsize=self.tick_label_font_size)
-
-        # Ensure y-axis starts at 0 and has some padding if there's data
-        if values:
-            ax.set_ylim(0, max(values) * 1.1 if max(values) > 0 else 1)
-        else:
-            ax.set_ylim(0, 1)
+        ax.set_title('Assignments by Class', color=self.text_color, fontsize=self.chart_font_size)
+        ax.set_xlabel('Number of Assignments', color=self.text_color, fontsize=self.axis_label_font_size)
+        ax.tick_params(axis='both', colors=self.text_color, labelsize=self.tick_label_font_size)
+        ax.xaxis.get_major_locator().set_params(integer=True)
+        ax.grid(axis='x', linestyle='--', alpha=0.7, color=self.grid_color)
+        legend = ax.legend(fontsize=self.tick_label_font_size, facecolor=self.plot_bg_color, edgecolor=self.grid_color)
+        for text in legend.get_texts():
+            text.set_color(self.text_color)
 
     def _create_difficulty_chart(self, ax, assignments):
         """Creates a histogram of assignment difficulties."""
@@ -453,13 +423,13 @@ class StatisticsTab(ttk.Frame):
                     dt_obj = due_date_val.date()
                 elif isinstance(due_date_val, date): # Handle if it's already a date object
                     dt_obj = due_date_val
-                if dt_obj >= today: # Only include today or future dates
+                if dt_obj is not None and today <= dt_obj <= today + timedelta(days=TIMELINE_DAYS):
                     # Store the original datetime if available for precise sorting, or date for plotting
                     plot_date = datetime.combine(dt_obj, datetime.min.time()) # Use datetime for mpl plotting
                     upcoming_assignments.append({'date': plot_date, 'priority': a.get('priority', 'Other')})
 
         ax.set_title(
-            'Upcoming Assignment Due Dates (Next 30 Days)', 
+            f'Upcoming Assignment Due Dates (Next {TIMELINE_DAYS} Days)', 
             fontsize=self.chart_font_size, 
             color=self.text_color, 
             pad=15 # Add some padding to avoid overlap with ticks if title is long
@@ -478,13 +448,7 @@ class StatisticsTab(ttk.Frame):
         priorities = [a['priority'] for a in upcoming_assignments]
         
         # Use ttkbootstrap theme colors for priorities
-        color_map = {
-            'High': self.app_instance.root.style.colors.danger,
-            'Medium': self.app_instance.root.style.colors.warning,
-            'Low': self.app_instance.root.style.colors.success,
-            'Other': self.app_instance.root.style.colors.secondary
-        }
-        plot_colors = [color_map.get(p, self.app_instance.root.style.colors.secondary) for p in priorities]
+        plot_colors = [PRIORITY_COLORS.get(p, self.app_instance.root.style.colors.secondary) for p in priorities]
         
         ax.scatter(dates_to_plot, [1] * len(dates_to_plot), c=plot_colors, s=100, alpha=0.7, edgecolor=self.grid_color)
             

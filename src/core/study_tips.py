@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from src.utils.helpers import HOURS_PER_DIFFICULTY_POINT
+from src.utils.helpers import HOURS_PER_DIFFICULTY_POINT, PRIORITY_RANK
 import random
 
 class StudyTipsGenerator:
@@ -21,6 +21,23 @@ class StudyTipsGenerator:
         if not current_assignment:
             return ["No specific assignment provided to generate tips for."]
 
+        # Time management based on due date for the current assignment
+        current_due_date = current_assignment.get('due_date')
+        if current_due_date and isinstance(current_due_date, datetime):
+            days_until_due = (current_due_date - datetime.now()).days
+            if days_until_due <= 2: # Due in 0, 1, or 2 days
+                tips.extend([
+                    "This assignment is due very soon! Focus on completing essential parts first.",
+                    "Set specific completion milestones for today and tomorrow.",
+                    "Minimize all distractions and dedicate focused time for completion."
+                ])
+            elif days_until_due <= 7:
+                tips.extend([
+                    "This assignment is due within a week. Create a daily progress plan.",
+                    "Break the remaining work into manageable chunks for each day.",
+                    "Track your progress daily to stay on schedule."
+                ])
+        
         # Difficulty-based tips
         difficulty = current_assignment.get('difficulty', 0)
         if difficulty > 7:
@@ -84,13 +101,13 @@ class StudyTipsGenerator:
             # Add more classes and tips as needed
         }
 
-        # Add general tips first
-        tips.extend(random.sample(GENERAL_TIPS, min(len(GENERAL_TIPS), 3))) # Get up to 3 random general tips
-
         # Add class-specific tips
-        assignment_class = current_assignment.get('class')
-        if assignment_class and assignment_class in class_tips:
-            tips.extend(class_tips[assignment_class])
+        # Case-insensitive partial match so e.g. "MATH 201" picks up the Math tips
+        assignment_class = str(current_assignment.get('class') or '').lower()
+        for class_key, class_specific_tips in class_tips.items():
+            if class_key.lower() in assignment_class:
+                tips.extend(class_specific_tips)
+                break
         
         # Workload management tips based on all assignments
         if assignments: 
@@ -102,37 +119,24 @@ class StudyTipsGenerator:
             )
             if due_this_week_count >= 3:
                 tips.extend([
-                    "📅 You have multiple assignments due soon. Create a detailed weekly study schedule.",
-                    "⏰ Use time blocking techniques to allocate specific time slots for each assignment.",
-                    "📊 Prioritize your tasks based on due dates, difficulty, and weight."
+                    "You have multiple assignments due soon. Create a detailed weekly study schedule.",
+                    "Use time blocking techniques to allocate specific time slots for each assignment.",
+                    "Prioritize your tasks based on due dates, difficulty, and weight."
                 ])
         
         # Priority-based tips for the current assignment
-        if current_assignment.get('priority') == 'High':
+        if current_assignment.get('priority') in ('High', 'Urgent'):
             tips.extend([
-                "❗ This is a high-priority assignment. Consider starting it before others.",
-                "📋 Set specific, achievable daily goals for this assignment.",
-                "⚡ Minimize distractions during your dedicated work sessions for this task."
+                "This is a high-priority assignment. Consider starting it before others.",
+                "Set specific, achievable daily goals for this assignment.",
+                "Minimize distractions during your dedicated work sessions for this task."
             ])
         
-        # Time management based on due date for the current assignment
-        current_due_date = current_assignment.get('due_date')
-        if current_due_date and isinstance(current_due_date, datetime):
-            days_until_due = (current_due_date - datetime.now()).days
-            if days_until_due <= 2: # Due in 0, 1, or 2 days
-                tips.extend([
-                    "⚠️ This assignment is due very soon! Focus on completing essential parts first.",
-                    "🕒 Set specific completion milestones for today and tomorrow.",
-                    "📱 Minimize all distractions and dedicate focused time for completion."
-                ])
-            elif days_until_due <= 7:
-                tips.extend([
-                    "📆 This assignment is due within a week. Create a daily progress plan.",
-                    "✅ Break the remaining work into manageable chunks for each day.",
-                    "📈 Track your progress daily to stay on schedule."
-                ])
-        
-        return list(set(tips)) if tips else ["Try to break down the work and start early!"]
+        # Generic advice last, so the most specific tips come first
+        tips.extend(random.sample(GENERAL_TIPS, min(len(GENERAL_TIPS), 3)))
+
+        # De-duplicate while keeping order
+        return list(dict.fromkeys(tips)) if tips else ["Try to break down the work and start early!"]
 
     @staticmethod
     def get_workload_warning(assignments):
@@ -154,16 +158,16 @@ class StudyTipsGenerator:
         if not active_week_assignments:
             return warnings # No active assignments this week to warn about
             
-        high_priority_count = sum(1 for a in active_week_assignments if a.get('priority') == 'High')
+        high_priority_count = sum(1 for a in active_week_assignments if a.get('priority') in ('High', 'Urgent'))
         if high_priority_count >= 3:
             warnings.append(
-                f"⚠️ You have {high_priority_count} high-priority assignments due this week!"
+                f"You have {high_priority_count} high-priority assignments due this week!"
             )
         
         high_difficulty_count = sum(1 for a in active_week_assignments if a.get('difficulty', 0) >= 8)
         if high_difficulty_count >= 2:
             warnings.append(
-                f"⚠️ You have {high_difficulty_count} challenging (difficulty 8+) assignments this week!"
+                f"You have {high_difficulty_count} challenging (difficulty 8+) assignments this week!"
             )
         
         total_estimated_hours = sum(
@@ -173,11 +177,11 @@ class StudyTipsGenerator:
         
         if total_estimated_hours > 30: 
             warnings.append(
-                f"⚠️ Heavy workload this week! Estimated {total_estimated_hours:.1f} hours needed for assignments."
+                f"Heavy workload this week! Estimated {total_estimated_hours:.1f} hours needed for assignments."
             )
         elif total_estimated_hours > 20:
              warnings.append(
-                f"🔎 Moderate workload this week: Estimated {total_estimated_hours:.1f} hours. Plan your time well!"
+                f"Moderate workload this week: Estimated {total_estimated_hours:.1f} hours. Plan your time well!"
             )
         
         return warnings
@@ -199,15 +203,14 @@ class StudyTipsGenerator:
         if not upcoming_schedulable:
             return ["No upcoming assignments that can be scheduled (check due dates, completion status, and difficulty)."]
         
-        priority_map = {'High': 3, 'Medium': 2, 'Low': 1, 'Other': 0}
-        # Correct sorting: Higher priority first, then earlier due date first
+        # Higher priority first, then earlier due date first
         upcoming_schedulable.sort(key=lambda x: (
-            -priority_map.get(x.get('priority', 'Other'), 0),  # Negative for descending priority
+            -PRIORITY_RANK.get(x.get('priority'), 0),  # Negative for descending priority
             x['due_date']  # Ascending due date for ties
         ))
 
 
-        schedule = ["📅 Suggested Study Schedule Focus (Top 5):"]
+        schedule = ["Suggested Study Schedule Focus (Top 5):"]
         
         for assignment in upcoming_schedulable[:5]: 
             days_until_due = (assignment['due_date'] - datetime.now()).days
@@ -218,14 +221,14 @@ class StudyTipsGenerator:
             if days_until_due > 0:
                 daily_hours_suggestion = estimated_hours_total / days_until_due
                 schedule.append(
-                    f"• {assignment.get('name', 'N/A')} ({assignment.get('class', 'N/A')}):\n"
+                    f"- {assignment.get('name', 'N/A')} ({assignment.get('class', 'N/A')}):\n"
                     f"  - Priority: {assignment.get('priority', 'N/A')}, Difficulty: {difficulty}/10\n"
                     f"  - Due in {days_until_due} days. Estimated total: {estimated_hours_total:.1f} hrs.\n"
                     f"  - Suggestion: Allocate ~{daily_hours_suggestion:.1f} hours/day."
                 )
             elif days_until_due == 0: # Due today
                  schedule.append(
-                    f"• {assignment.get('name', 'N/A')} ({assignment.get('class', 'N/A')}):\n"
+                    f"- {assignment.get('name', 'N/A')} ({assignment.get('class', 'N/A')}):\n"
                     f"  - Priority: {assignment.get('priority', 'N/A')}, Difficulty: {difficulty}/10\n"
                     f"  - URGENT: DUE TODAY! Estimated remaining: {estimated_hours_total:.1f} hrs. Focus on this!"
                 )

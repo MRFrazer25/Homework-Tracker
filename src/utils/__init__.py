@@ -4,14 +4,12 @@ from .helpers import (
     format_time_remaining, 
     format_date, 
     calculate_workload_hours,
-    get_priority_color,
-    get_class_emoji
+    get_priority_color
 )
 
 __all__ = [
     'format_time_remaining', 
     'format_date', 
     'calculate_workload_hours',
-    'get_priority_color',
-    'get_class_emoji'
+    'get_priority_color'
 ]

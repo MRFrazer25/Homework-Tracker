@@ -138,18 +138,10 @@ Desktop.ini
 *.log
 logs/
 
-# User-specific application data (Homework Tracker)
-data/assignments.json
-data/chat_history.json
-data/persistent_chat_log.json
-data/settings.json
-data/*.corrupted.* # Ignore any corrupted backups
+# User-specific application data (assignments, settings, chat logs, corrupted-file backups)
 data/
 
 # Sensitive information
 secrets.py
 *.credential*
-config.ini # if it contains sensitive data, otherwise check content
-credentials/ 
-
-*.json
+credentials/

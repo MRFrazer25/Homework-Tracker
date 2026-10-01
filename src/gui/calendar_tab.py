@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
 import ttkbootstrap as ttkb # For DateEntry and other ttkbootstrap widgets
-from ttkbootstrap.dialogs import DatePickerDialog # Though DateEntry uses it internally
 from datetime import datetime, date # Ensure date is imported
 
 class CalendarTab(ttk.Frame):
@@ -109,7 +108,7 @@ class CalendarTab(ttk.Frame):
                     elif isinstance(due_date_val, str):
                         due_date = datetime.strptime(due_date_val, '%Y-%m-%d').date()
                     else:
-                        print(f"Warning: Due date for assignment '{assignment.get('title', 'Unknown')}' has an unexpected type: {type(due_date_val)}")
+                        print(f"Warning: Due date for assignment '{assignment.get('name', 'Unknown')}' has an unexpected type: {type(due_date_val)}")
                         continue
 
                     if due_date == self.selected_date:
@@ -124,7 +123,7 @@ class CalendarTab(ttk.Frame):
                         self.event_listbox.insert(tk.END, display_text)
                         found_assignments = True
                 except ValueError:
-                    print(f"Warning: Could not parse due_date string '{due_date_val}' for assignment '{assignment.get('title', 'Unknown')}'. Ensure format is YYYY-MM-DD.")
+                    print(f"Warning: Could not parse due_date string '{due_date_val}' for assignment '{assignment.get('name', 'Unknown')}'. Ensure format is YYYY-MM-DD.")
                     continue 
         
         if not found_assignments:

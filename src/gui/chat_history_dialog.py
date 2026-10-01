@@ -1,11 +1,10 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 import json
-import os
 from collections import defaultdict
 from datetime import datetime
 
-PERSISTENT_CHAT_LOG_FILE = "data/persistent_chat_log.json"
+from src.core.chatbot import PERSISTENT_CHAT_LOG_FILE
 
 class ChatHistoryDialog(tk.Toplevel):
     def __init__(self, parent, app_instance):
@@ -29,7 +28,7 @@ class ChatHistoryDialog(tk.Toplevel):
 
     def _load_and_group_sessions(self):
         sessions = defaultdict(list)
-        if os.path.exists(PERSISTENT_CHAT_LOG_FILE):
+        if PERSISTENT_CHAT_LOG_FILE.exists():
             try:
                 with open(PERSISTENT_CHAT_LOG_FILE, 'r', encoding='utf-8') as f:
                     log_data = json.load(f)
@@ -128,7 +127,7 @@ class ChatHistoryDialog(tk.Toplevel):
         
         # Simple contrast for selected text on primary background
         try: r,g,b = self.app_instance.root.winfo_rgb(select_bg); brightness = (r*299+g*587+b*114)/1000/255
-        except: brightness = 0.4 # Assume dark if can't parse
+        except (tk.TclError, ValueError): brightness = 0.4 # Assume dark if can't parse
         select_fg = 'white' if brightness < 0.6 else 'black'
 
         self.sessions_listbox.config(bg=list_bg, fg=list_fg, selectbackground=select_bg, selectforeground=select_fg)
