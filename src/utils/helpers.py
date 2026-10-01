@@ -1,114 +1,20 @@
 """Helper functions for the Homework Tracker application"""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
-def format_time_remaining(due_date):
+def format_date(date_obj):
     """
-    Format the time remaining until an assignment is due
-    
-    Args:
-        due_date (datetime): The assignment's due date
-    
+    Format a due date consistently throughout the application.
+
     Returns:
-        str: Formatted string showing time remaining
-    """
-    if not isinstance(due_date, datetime):
-        return "Invalid date"
-
-    now = datetime.now()
-    time_delta = due_date - now
-    
-    total_seconds = time_delta.total_seconds()
-
-    if total_seconds <= 0:
-        return "Overdue!"
-    
-    if total_seconds < 60:
-        return "Less than a minute remaining"
-
-    days = time_delta.days
-    hours = time_delta.seconds // 3600
-    minutes = (time_delta.seconds % 3600) // 60
-    
-    time_parts = []
-    if days > 0:
-        time_parts.append(f"{days} day{'s' if days != 1 else ''}")
-    if hours > 0:
-        time_parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-    if minutes > 0: # Only show minutes if it's the most significant or with hours/days
-        time_parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
-    
-    if not time_parts: # Should be caught by total_seconds < 60, but as a fallback
-        return "Due very soon"
-
-    return ", ".join(time_parts) + " remaining"
-
-def format_date(date_obj, include_time=True):
-    """
-    Format a date(time) consistently throughout the application.
-    
-    Args:
-        date_obj (datetime): The date object to format.
-        include_time (bool): Whether to include the time in the output.
-    
-    Returns:
-        str: Formatted date string, or 'N/A' if date_obj is invalid.
+        str: The date as YYYY-MM-DD, or 'N/A' if date_obj isn't a datetime.
     """
     if not isinstance(date_obj, datetime):
         return "N/A" # Handle None or invalid types gracefully
-    
-    if include_time:
-        return date_obj.strftime('%Y-%m-%d %H:%M')
     return date_obj.strftime('%Y-%m-%d')
 
 # Estimated hours of work per point of difficulty.
 HOURS_PER_DIFFICULTY_POINT = 1.5
-
-def calculate_workload_hours(assignments, start_date=None, end_date=None):
-    """
-    Calculate estimated workload hours for a given time period.
-    
-    Args:
-        assignments (list): List of assignment dictionaries.
-        start_date (datetime, optional): Start of period to calculate. Defaults to now.
-        end_date (datetime, optional): End of period to calculate. Defaults to 7 days from start_date.
-    
-    Returns:
-        dict: Dictionary containing total hours, breakdown by class, and count of assignments.
-    """
-    if start_date is None:
-        start_date = datetime.now()
-    if end_date is None:
-        end_date = start_date + timedelta(days=7) # Ensure end_date is relative to actual start_date
-    
-    # Ensure start_date and end_date are datetime objects for comparison
-    # (though they usually will be if coming from datetime.now() or timedelta)
-    if not (isinstance(start_date, datetime) and isinstance(end_date, datetime)):
-        return {'total': 0, 'by_class': {}, 'assignments_count': 0}
-
-
-    filtered_assignments = []
-    for a in assignments:
-        due_date = a.get('due_date')
-        if not a.get('completed', False) and due_date and isinstance(due_date, datetime):
-            # Compare date part if start/end are dates, or full datetime if they are datetimes
-            # For simplicity, assuming due_date is comparable directly if start/end are datetimes
-            if start_date <= due_date <= end_date:
-                filtered_assignments.append(a)
-    
-    total_hours = sum(a.get('difficulty', 0) * HOURS_PER_DIFFICULTY_POINT for a in filtered_assignments)
-    
-    class_hours = {}
-    for assignment in filtered_assignments:
-        class_name = assignment.get('class', 'Uncategorized')
-        hours = assignment.get('difficulty', 0) * HOURS_PER_DIFFICULTY_POINT
-        class_hours[class_name] = class_hours.get(class_name, 0) + hours
-    
-    return {
-        'total': total_hours,
-        'by_class': class_hours,
-        'assignments_count': len(filtered_assignments)
-    }
 
 def get_priority_color(priority):
     """
@@ -134,15 +40,5 @@ PRIORITY_COLORS = {
 }
 ALLOWED_DIFFICULTY = list(range(1, 11))
 
-# Date formats for use with ttkbootstrap.DateEntry and strptime/strftime
-# These keys should match what's stored in settings (date_format_template_name)
-DATE_FORMATS = {
-    'default': '%Y-%m-%d', 
-    'iso8601': '%Y-%m-%d',
-    'us_short': '%m/%d/%y',
-    'us_long': '%m/%d/%Y',
-    'eur_short': '%d/%m/%y',
-    'eur_long': '%d/%m/%Y',
-    'verbose': '%B %d, %Y', # e.g., July 04, 2024
-    'verbose_with_day': '%A, %B %d, %Y' # e.g., Thursday, July 04, 2024
-}
+# Date format for the date pickers and for parsing what they contain
+DATE_FORMAT = '%Y-%m-%d'

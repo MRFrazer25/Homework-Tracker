@@ -5,12 +5,10 @@ from tkinter import scrolledtext, ttk, messagebox
 from .chat_history_dialog import ChatHistoryDialog
 
 class ChatbotTab(ttk.Frame):
-    def __init__(self, parent, app_instance, chatbot_instance, assignment_manager, study_tips_generator):
+    def __init__(self, parent, app_instance, chatbot_instance):
         super().__init__(parent)
         self.app_instance = app_instance # To access main app methods if needed
         self.chatbot = chatbot_instance # Use the passed chatbot instance
-        self.assignment_manager = assignment_manager
-        self.study_tips_generator = study_tips_generator
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
         self._create_widgets()
@@ -151,10 +149,6 @@ class ChatbotTab(ttk.Frame):
         # Pass self.app_instance which ChatHistoryDialog expects for theme settings etc.
         ChatHistoryDialog(self.winfo_toplevel(), self.app_instance)  # The dialog manages itself (modal, etc.)
     
-    def refresh_data(self):
-        """Called when data might have changed elsewhere (e.g., assignments updated)."""
-        pass
-
     def on_theme_changed(self, is_dark_theme=None):
         """Updates chat display tag colors based on the current application theme."""
         if not self.app_instance or not hasattr(self.app_instance, 'root') or \
@@ -204,7 +198,6 @@ class ChatbotTab(ttk.Frame):
 
         self.chat_display.config(background=chat_bg) # Let content tags handle fg for ScrolledText content
         # Input field (ttk.Entry) should be styled by ttkbootstrap automatically.
-        # self.input_field.configure(background=chat_bg, foreground=content_fg) # Not usually needed for ttk.Entry
         
         font_semibold = ("Segoe UI Semibold", 11)
         font_normal = ("Segoe UI", 11)
@@ -220,7 +213,6 @@ class ChatbotTab(ttk.Frame):
         self.chat_display.tag_configure("error_content", foreground=content_fg, font=font_italic)
         self.chat_display.tag_configure("bot_welcome_content", foreground=content_fg, font=font_normal)
         
-        # print(f"ChatbotTab: Theme updated. Dark mode: {is_dark}. Input FG: {content_fg}, Input BG: {chat_bg}")
 
         print(f"ChatbotTab: Theme updated. Dark mode: {is_dark}")
         # Refresh chat display if it's already populated to re-apply tags might be complex.

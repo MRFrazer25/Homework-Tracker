@@ -71,14 +71,7 @@ class StatisticsTab(ttk.Frame):
         self.no_data_label = None # Will be created in setup_charts_ui
 
         self.setup_charts_ui() # Creates canvas and no_data_label
-        # Defer refresh_charts until after on_theme_changed is called once
-        # to ensure plots are styled correctly on initial load.
-        # self.refresh_charts() # Called by on_theme_changed
-        
-        # Initial theme setup
-        # We need to ensure the main app is available to get settings.
-        # This assumes app.py's get_master_app callback is set up.
-        # A small delay or a more robust mechanism might be needed if settings aren't immediately available.
+        # Draw the charts only after the theme is applied, so they're styled correctly on first load
         self.after(10, self._initial_theme_setup)
 
     def _get_matplotlib_style(self, is_dark_theme):
@@ -166,7 +159,6 @@ class StatisticsTab(ttk.Frame):
             self.charts_container_frame,
             text="No assignments to analyze for statistics.",
             font=("TkDefaultFont", 12) # Explicit font
-            # style='Header.TLabel' # Style might not be available or might clash
         )
         # Do not pack no_data_label here; refresh_charts will manage it.
 
@@ -176,36 +168,11 @@ class StatisticsTab(ttk.Frame):
             return
         
         style_to_apply = self._get_matplotlib_style(is_dark_theme)
-        theme_settings = {} # Default empty dict
+        self.text_color = style_to_apply["text.color"]
+        self.plot_bg_color = style_to_apply["axes.facecolor"]
+        self.figure_bg_color = style_to_apply["figure.facecolor"]
+        self.grid_color = style_to_apply["axes.edgecolor"] # Also used for spines
 
-        if not self.app_instance or not hasattr(self.app_instance, 'is_dark_theme') or not hasattr(self.app_instance, 'get_current_theme_settings'):
-            print("Warning: StatisticsTab cannot access app_instance or full theme settings.")
-            # Use fallback style_to_apply and derive basic colors
-            self.text_color = style_to_apply.get("text.color", 'white' if is_dark_theme else 'black')
-            self.plot_bg_color = style_to_apply.get("axes.facecolor", '#3C3C3C' if is_dark_theme else 'white')
-            self.figure_bg_color = style_to_apply.get("figure.facecolor", '#2E2E2E' if is_dark_theme else '#F0F0F0')
-            self.grid_color = style_to_apply.get("axes.edgecolor", 'white' if is_dark_theme else 'black') # Using edgecolor for grid
-            text_color_fallback = self.text_color
-            bg_color_fallback = self.plot_bg_color # For no_data_label background
-            
-            if self.no_data_label:
-                 self.no_data_label.configure(
-                    foreground=text_color_fallback,
-                    background=bg_color_fallback 
-                )
-        else:
-            theme_settings = self.app_instance.get_current_theme_settings()
-            # Set instance attributes for colors and fonts from theme_settings or style_to_apply
-            self.text_color = theme_settings.get('text_color', style_to_apply.get("text.color", 'white' if is_dark_theme else 'black'))
-            self.plot_bg_color = theme_settings.get('plot_bg', style_to_apply.get("axes.facecolor", '#3C3C3C' if is_dark_theme else 'white'))
-            self.figure_bg_color = theme_settings.get('background_color', style_to_apply.get("figure.facecolor", '#2E2E2E' if is_dark_theme else '#F0F0F0'))
-            self.grid_color = theme_settings.get('grid_color', style_to_apply.get("axes.edgecolor", 'gray')) # A dedicated grid color or fallback
-
-        # Font sizes - provide defaults if not in theme_settings
-        self.chart_font_size = theme_settings.get('chart_font_size', 12)
-        self.axis_label_font_size = theme_settings.get('axis_label_font_size', 10)
-        self.tick_label_font_size = theme_settings.get('tick_label_font_size', 9)
-        
         # Apply the chosen style to Matplotlib rcParams
         plt.rcParams.update(style_to_apply)
 
@@ -253,7 +220,7 @@ class StatisticsTab(ttk.Frame):
             self.no_data_label.pack_forget()
         if not self.canvas_widget.winfo_ismapped():
             # Apply theme settings to the canvas widget's parent as well for consistency
-            if self.app_instance and hasattr(self.app_instance, 'get_current_theme_settings'):
+            if self.app_instance:
                 is_dark = self.app_instance.is_dark_theme()
                 # Set canvas background to match figure background
                 self.canvas_widget.configure(bg=self._get_matplotlib_style(is_dark)["figure.facecolor"])
@@ -392,9 +359,7 @@ class StatisticsTab(ttk.Frame):
         # Apply theme styles
         ax.set_facecolor(self.plot_bg_color)
         ax.tick_params(axis='x', colors=self.text_color, labelrotation=45, labelsize=self.tick_label_font_size)
-        # ax.tick_params(axis='y', colors=self.text_color, labelsize=self.tick_label_font_size) # Y-axis is hidden
         ax.xaxis.label.set_color(self.text_color)
-        # ax.yaxis.label.set_color(self.text_color) # Y-axis has no label
         ax.title.set_color(self.text_color)
         for spine in ax.spines.values():
             spine.set_edgecolor(self.grid_color) # Match other charts
@@ -451,7 +416,6 @@ class StatisticsTab(ttk.Frame):
         ax.scatter(dates_to_plot, [1] * len(dates_to_plot), c=plot_colors, s=100, alpha=0.7, edgecolor=self.grid_color)
             
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-        # ax.tick_params(axis='x', labelrotation=45) # Already set above
         
         if dates_to_plot:
             min_date = min(dates_to_plot)

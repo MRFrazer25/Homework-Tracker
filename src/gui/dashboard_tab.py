@@ -148,7 +148,6 @@ class DashboardTab(ttk.Frame):
         
         if self.top_frame: # Ensure top_frame (parent for summary) exists
             self._build_summary_frame(self.top_frame)
-            # print("DashboardTab: Summary frame refreshed.") # Debug print
         else:
             # This case should ideally not be hit if setup_ui is called before refresh_data
             print("DashboardTab: Refresh skipped, top_frame not ready.")

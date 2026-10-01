@@ -16,7 +16,6 @@ from .calendar_tab import CalendarTab
 from .chatbot_tab import ChatbotTab
 
 # Utilities (if needed directly by app.py, otherwise imported by tabs)
-# from src.utils.helpers import format_date
 from src.utils.settings_manager import save_app_settings, DEFAULT_ASSISTANT_MODEL # load_app_settings is used in main.py
 
 # ttkbootstrap themes
@@ -71,7 +70,6 @@ class HomeworkTrackerApp:
         
         self._setup_styles()  # ttkbootstrap handles much of this via the Window's theme
         self._create_main_widgets()
-        # self.apply_theme() # Initial theme is set by ttkbootstrap.Window in main.py
         self.refresh_themed_widgets()
 
     def _setup_styles(self):
@@ -94,36 +92,8 @@ class HomeworkTrackerApp:
         except tk.TclError as e: # Catch TclErrors too if styling fails at that level
             print(f"WARNING: TclError configuring 'Header.TLabel': {e}. Style may not be applied.")
         
-        # Treeview.Heading font might be well-handled by ttkbootstrap themes.
-        # Check appearance before re-adding:
-        # self.style.configure("Treeview.Heading", font=('Helvetica', 10, 'bold'))
         self.style.configure("TNotebook.Tab", font=('Helvetica', 10, 'normal'), padding=[5,2])
-
-        # Accent colors: ttkbootstrap themes have primary, secondary, success, info, warning, danger colors.
-        # We can use these semantically if needed, e.g., self.style.colors.primary
-        # For selected items in Treeview, ttkbootstrap usually has a good default.
-        # If customization is needed:
-        # vibrant_blue_accent = self.style.colors.info # Example: use the theme's info color
-        # selection_text_color = "white" # Or determine dynamically based on accent
-        # self.style.map("Treeview",
-        #                background=[("selected", vibrant_blue_accent)],
-        #                foreground=[("selected", selection_text_color)])
-        
         self.style.configure("TButton", padding=5)
-        # TButton active state is also usually handled well by ttkbootstrap.
-
-        # This dictionary is for very specific custom tk widgets or parts not covered by ttk.
-        # For ttk widgets, rely on the theme or ttkbootstrap's color system.
-        self.app_theme_settings = {
-            "date_entry_style": { # For tkcalendar DateEntry
-                "selectbackground": self.style.colors.primary if hasattr(self.style, 'colors') else "#0078D4",
-                "selectforeground": "white", # Assuming primary is dark enough for white text
-            },
-            "entry_bg": self.style.colors.get('inputbg') if hasattr(self.style, 'colors') else "white",
-            "entry_fg": self.style.colors.get('inputfg') if hasattr(self.style, 'colors') else "black"
-        }
-        # print(f"DEBUG: App style configured. Current theme: {self.style.theme_use()}")
-        # print(f"DEBUG: ttkbootstrap colors: {self.style.colors if hasattr(self.style, 'colors') else 'N/A'}")
 
     def is_dark_theme(self):
         """Checks if the current theme is considered dark."""
@@ -131,37 +101,6 @@ class HomeworkTrackerApp:
         # but relying on our list is safer for wider compatibility or if that attribute isn't present.
         current_theme_name = self.settings.get("theme", "litera") # Default to a light theme
         return current_theme_name in self.KNOWN_DARK_THEMES
-
-    def get_current_theme_settings(self):
-        """Returns theme settings, primarily for dialogs or custom widgets like tk.Text."""
-        # With ttkbootstrap, many widget colors are derived from the theme's color palette.
-        is_dark = self.is_dark_theme()
-        
-        # Attempt to get colors directly from ttkbootstrap style
-        try:
-            entry_bg = self.root.style.colors.get('inputbg')
-            entry_fg = self.root.style.colors.get('inputfg')
-            select_bg = self.root.style.colors.primary
-            # Determine select_fg based on perceived brightness of primary
-            # This is a simple heuristic; proper contrast calculation is complex.
-            r, g, b = self.root.winfo_rgb(select_bg)
-            brightness = (r * 299 + g * 587 + b * 114) / 1000 / 255 # Normalize to 0-1 range approx
-            select_fg = "white" if brightness < 0.5 else "black"
-
-        except (AttributeError, tk.TclError): # Fallback if colors object isn't there or theme not fully loaded
-            entry_bg = "#2B2B2B" if is_dark else "white"
-            entry_fg = "white" if is_dark else "black"
-            select_bg = "#0078D4" # Default blue
-            select_fg = "white"
-            
-        return {
-            "date_entry_style": { # For tkcalendar DateEntry
-                "selectbackground": select_bg,
-                "selectforeground": select_fg,
-            },
-            "entry_bg": entry_bg, # For tk.Text or custom entry-like widgets
-            "entry_fg": entry_fg
-        }
 
     def _create_main_widgets(self):
         """Creates and packs the main UI components like the notebook for tabs."""
@@ -174,10 +113,7 @@ class HomeworkTrackerApp:
             'add_assignment': self.handle_add_assignment_request,
             'delete_assignment': self.handle_delete_assignment_request,
             'set_completion': self.handle_set_completion_request,
-            'refresh_all_tabs': self.refresh_all_tabs,
-            'get_theme_settings': self.get_current_theme_settings, # Crucial for dialogs/custom tk widgets
             'get_master_app': lambda: self,
-            'get_date_format_template_name': lambda: self.settings.get('date_format_template_name', 'default')
         }
 
         self.dashboard_tab_instance = DashboardTab(self.notebook, assignments_provider, app_callbacks)
@@ -192,13 +128,7 @@ class HomeworkTrackerApp:
         self.calendar_tab_instance = CalendarTab(self.notebook, assignments_provider, app_callbacks)
         self.notebook.add(self.calendar_tab_instance, text='Calendar')
 
-        self.chatbot_tab_instance = ChatbotTab(
-            self.notebook,
-            self, 
-            self.chatbot_instance, 
-            self.assignment_manager,
-            self.study_tips_generator
-        ) 
+        self.chatbot_tab_instance = ChatbotTab(self.notebook, self, self.chatbot_instance)
         self.notebook.add(self.chatbot_tab_instance, text='Chatbot')
         self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
 
@@ -238,34 +168,17 @@ class HomeworkTrackerApp:
     def refresh_themed_widgets(self):
         """Calls on_theme_changed on tabs to refresh widgets that need manual theme updates."""
         is_dark = self.is_dark_theme()
-        # print(f"DEBUG: Refreshing themed widgets. Dark mode: {is_dark}")
-
-        # Update app_theme_settings before tabs query it
-        current_settings = self.get_current_theme_settings()
-        self.app_theme_settings.update(current_settings)
-        
-        for tab_instance in [
-            self.dashboard_tab_instance, 
-            self.assignments_tab_instance, 
-            self.statistics_tab_instance, 
-            self.calendar_tab_instance, 
-            self.chatbot_tab_instance
-        ]:
+        for tab_instance in [self.statistics_tab_instance, self.calendar_tab_instance, self.chatbot_tab_instance]:
             if tab_instance:
-                if hasattr(tab_instance, 'on_theme_changed'):
-                    try:
-                        tab_instance.on_theme_changed(is_dark)
-                    except Exception as e:
-                        print(f"Error calling on_theme_changed for {type(tab_instance).__name__}: {e}")
-                # Fallback refresh if on_theme_changed not present or for data sync
-                elif hasattr(tab_instance, 'refresh_data'):
-                    if isinstance(tab_instance, StatisticsTab) and hasattr(tab_instance, 'refresh_charts'):
-                        tab_instance.refresh_charts()
-                    else:
-                        tab_instance.refresh_data()
-                elif hasattr(tab_instance, 'update_assignments_list'): # For AssignmentsTab
-                     tab_instance.update_assignments_list()
-        # print("DEBUG: Finished refreshing themed widgets.")
+                try:
+                    tab_instance.on_theme_changed(is_dark)
+                except Exception as e:
+                    print(f"Error calling on_theme_changed for {type(tab_instance).__name__}: {e}")
+        # The other tabs use plain ttk widgets that follow the theme; just redraw them
+        if self.dashboard_tab_instance:
+            self.dashboard_tab_instance.refresh_data()
+        if self.assignments_tab_instance:
+            self.assignments_tab_instance.update_assignments_list()
 
     # --- Callback Handlers for Tabs ---
     def handle_add_assignment_request(self, assignment_data):
@@ -347,7 +260,6 @@ class HomeworkTrackerApp:
         
         # Chatbot tab might not have a generic refresh_data, it updates through interactions
         # or its own on_theme_changed if implemented.
-        # print("All tabs refreshed for data.")
 
     def run(self):
         """Starts the Tkinter main event loop."""

@@ -1,7 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 import ttkbootstrap as ttkb # For DateEntry and other ttkbootstrap widgets
-from datetime import datetime, date # Ensure date is imported
+from datetime import datetime, date
+from src.utils.helpers import DATE_FORMAT
 
 class CalendarTab(ttk.Frame):
     """
@@ -13,8 +14,6 @@ class CalendarTab(ttk.Frame):
         self.app_callbacks = app_callbacks
         self.app_instance = self.app_callbacks['get_master_app']()
         self.selected_date = date.today() # Store the currently selected date
-
-        self.date_format_str = "%Y-%m-%d" # Define date format for parsing and display
 
         self._setup_ui()
         self.on_theme_changed(self.app_instance.is_dark_theme()) # Apply initial theme
@@ -29,7 +28,7 @@ class CalendarTab(ttk.Frame):
         # DateEntry for date selection
         self.date_entry = ttkb.DateEntry(
             self.main_frame,
-            date_format=self.date_format_str,
+            date_format=DATE_FORMAT,
             first_weekday=0, # Monday: 0=Monday, ..., 6=Sunday (DateEntry default is 6)
             start_date=self.selected_date
         )
@@ -57,8 +56,7 @@ class CalendarTab(ttk.Frame):
         self.event_listbox.configure(yscrollcommand=self.event_listbox_scrollbar.set)
         self.event_listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.event_listbox.pack(side=tk.LEFT, fill="both", expand=True)
-        
-        self.error_label = None # Placeholder for other errors if needed
+
 
 
     def on_date_selected(self, event=None):
@@ -152,11 +150,4 @@ class CalendarTab(ttk.Frame):
                 selectbackground=select_bg,
                 selectforeground=select_fg, 
                 font=("Segoe UI", 10) 
-            )
-
-        if self.error_label and self.error_label.winfo_exists():
-            err_fg = bs_colors.get('danger') or ('#FF5555' if is_dark_theme else '#CC0000')
-            self.error_label.configure(
-                background=bs_colors.get('bg'), 
-                foreground=err_fg
             )

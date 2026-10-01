@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from ttkbootstrap.widgets import DateEntry # Use ttkbootstrap DateEntry
 from datetime import datetime, date # Ensure date is imported
-from src.utils.helpers import format_date, ALLOWED_PRIORITIES, ALLOWED_DIFFICULTY, DATE_FORMATS # Import our defined DATE_FORMATS
+from src.utils.helpers import format_date, ALLOWED_PRIORITIES, ALLOWED_DIFFICULTY, DATE_FORMAT
 from src.core.data_handler import DUE_TIME
 
 class AddAssignmentDialog(tk.Toplevel):
@@ -98,7 +98,7 @@ class AddAssignmentDialog(tk.Toplevel):
         self.due_date_entry = DateEntry(
             form_frame,
             start_date=self.due_date_initial_val,
-            date_format=DATE_FORMATS.get(self.app_callbacks['get_date_format_template_name'](), '%Y-%m-%d')
+            date_format=DATE_FORMAT
         )
         self.due_date_entry.grid(row=2, column=1, sticky="w", pady=3, padx=5)
         
@@ -161,13 +161,9 @@ class AddAssignmentDialog(tk.Toplevel):
         try:
             # Parse the raw text (rather than get_date()) so a mistyped date is reported instead of silently replaced
             due_date_str = self.due_date_entry.entry.get()
-            # Use the date_format from settings_manager to parse
-            date_format_template = self.app_callbacks['get_date_format_template_name']() # Use new direct callback
-            actual_date_format = DATE_FORMATS.get(date_format_template, '%Y-%m-%d') # Fallback to ISO
-            
-            due_date_obj = datetime.strptime(due_date_str, actual_date_format).date()
-        except Exception as e: 
-            messagebox.showerror("Validation Error", f"Invalid due date: {due_date_str}. Please use {actual_date_format} format. Error: {e}", parent=self)
+            due_date_obj = datetime.strptime(due_date_str, DATE_FORMAT).date()
+        except ValueError:
+            messagebox.showerror("Validation Error", f"Invalid due date: {due_date_str}. Please use YYYY-MM-DD.", parent=self)
             self.due_date_entry.focus_set()
             return
 
@@ -332,7 +328,7 @@ class AssignmentsTab(ttk.Frame):
                         assignment_id, # Value for the hidden 'id' column
                         assignment.get('name', 'N/A'),
                         assignment.get('class', 'N/A'),
-                        format_date(assignment.get('due_date'), include_time=False), 
+                        format_date(assignment.get('due_date')), 
                         assignment.get('priority', 'N/A'),
                         difficulty_display,
                         completed_status
@@ -353,7 +349,6 @@ class AssignmentsTab(ttk.Frame):
             if add_assignment_callback:
                 add_assignment_callback(new_assignment_data) 
                 # App's callback (handle_add_assignment_request) is now responsible for messages and refresh.
-                # self.update_assignments_list() # This is handled by app's refresh_all_tabs
             else:
                 messagebox.showerror("Configuration Error", "Add assignment callback not configured.", parent=self.winfo_toplevel())
 
@@ -387,7 +382,6 @@ class AssignmentsTab(ttk.Frame):
             # The app.py handler will show confirmation and messages.
             # It expects the assignment object.
             delete_callback(selected_assignment) 
-            # self.update_assignments_list() # app.py's refresh_all_tabs will handle this
         else:
             messagebox.showerror("Configuration Error", "Delete assignment callback not configured.", parent=self.winfo_toplevel())
 
@@ -441,8 +435,4 @@ class AssignmentsTab(ttk.Frame):
 
     def clear_search(self):
         """Clears the search term and updates the assignments list."""
-        self.search_var.set("")
-        # self.update_assignments_list() # The trace on search_var should trigger this automatically
-        
-        self.update_idletasks() # Refresh to get correct width/height for search entry
-        # print(f"Width after idle: {self.search_entry.winfo_width()}")
+        self.search_var.set("")  # The trace on search_var refreshes the list
