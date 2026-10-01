@@ -97,8 +97,8 @@ class AddAssignmentDialog(tk.Toplevel):
         ttk.Label(form_frame, text="Due Date:").grid(row=2, column=0, sticky="w", pady=3, padx=5)
         self.due_date_entry = DateEntry(
             form_frame,
-            startdate=self.due_date_initial_val,
-            dateformat=DATE_FORMATS[self.app_callbacks['get_date_format_template_name']()] # Use new direct callback
+            start_date=self.due_date_initial_val,
+            date_format=DATE_FORMATS.get(self.app_callbacks['get_date_format_template_name'](), '%Y-%m-%d')
         )
         self.due_date_entry.grid(row=2, column=1, sticky="w", pady=3, padx=5)
         
@@ -159,7 +159,7 @@ class AddAssignmentDialog(tk.Toplevel):
             return
 
         try:
-            # ttkbootstrap.DateEntry.entry.get() returns string, .startdate is a datetime object
+            # Parse the raw text (rather than get_date()) so a mistyped date is reported instead of silently replaced
             due_date_str = self.due_date_entry.entry.get()
             # Use the date_format from settings_manager to parse
             date_format_template = self.app_callbacks['get_date_format_template_name']() # Use new direct callback

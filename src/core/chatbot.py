@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import threading
 from datetime import datetime
@@ -57,7 +56,12 @@ KEYWORD_INTENTS = [
 ]
 
 class Chatbot:
-    def __init__(self, assignment_manager, study_tips_generator):
+    """
+    Two layers: fast Hugging Face classifiers (intent + emotion) that answer fixed commands, and an
+    optional LLM agent (see assistant.py) that understands free-form requests and can change assignments.
+    The agent handles requests once loaded; the classifiers cover the time before that and any failure.
+    """
+    def __init__(self, assignment_manager, study_tips_generator, assistant_model=None):
         self.assignment_manager = assignment_manager
         self.study_tips_generator = study_tips_generator
         self.session_id = datetime.now().isoformat() # Unique ID for this app session
@@ -67,6 +71,11 @@ class Chatbot:
         self.emotion_classifier = None
         self.models_ready = threading.Event()
 
+        # LLM agent (None disables it, e.g. on machines without enough memory)
+        self.assistant_model = assistant_model
+        self.assistant = None
+        self.assistant_status = "disabled" if not assistant_model else "waiting to load"
+
         self.command_handlers = {
             "list assignments": self._handle_list_assignments,
             "show assignments": self._handle_list_assignments, # Alias
@@ -74,7 +83,8 @@ class Chatbot:
             "show priorities": self._handle_show_priorities,
             "check schedule": self._handle_check_schedule,
             "bot status": lambda _: "I am functioning. My NLU and emotion models are " + \
-                                   ("loaded." if self.intent_classifier and self.emotion_classifier else "not fully loaded."),
+                                   ("loaded" if self.intent_classifier and self.emotion_classifier else "not fully loaded") + \
+                                   f", and the AI assistant is {self.assistant_status}.",
             "thank you": lambda _: "You're welcome!",
             "general greeting": lambda _: "Hello! How can I help you today?",
             "general farewell": lambda _: "Goodbye! Have a great day!",
@@ -86,8 +96,6 @@ class Chatbot:
         threading.Thread(target=self._load_models, daemon=True).start()
 
     def _load_models(self):
-        # Stop transformers from loading TensorFlow if it happens to be installed; the models run on PyTorch.
-        os.environ.setdefault("USE_TF", "0")
         try:
             # Imported here because torch/transformers take several seconds to import.
             import torch
@@ -106,8 +114,7 @@ class Chatbot:
             self.intent_classifier = pipeline(
                 "zero-shot-classification",
                 model=INTENT_MODEL_NAME,
-                device=device,
-                framework="pt"
+                device=device
             )
             print("Chatbot: Intent detection model loaded.")
         except Exception as e:
@@ -120,8 +127,7 @@ class Chatbot:
                 "text-classification",
                 model=EMOTION_MODEL_NAME,
                 tokenizer=EMOTION_MODEL_NAME, # Explicitly specify tokenizer
-                device=device,
-                framework="pt"
+                device=device
             )
             print("Chatbot: Emotion detection model loaded.")
         except Exception as e:
@@ -129,6 +135,24 @@ class Chatbot:
             print("Chatbot: Emotion detection will be unavailable.")
 
         self.models_ready.set()
+        self._load_assistant()
+
+    def _load_assistant(self):
+        """Loads the LLM agent after the (much faster) classifiers, so simple commands work sooner."""
+        if not self.assistant_model:
+            return
+        self.assistant_status = "loading"
+        try:
+            print(f"Chatbot: Loading assistant model: {self.assistant_model}...")
+            from src.core.assistant import Assistant  # Imports langchain; kept off the startup path
+            assistant = Assistant(self.assignment_manager, self.study_tips_generator, model_id=self.assistant_model)
+            assistant.load()
+            self.assistant = assistant
+            self.assistant_status = "ready"
+            print("Chatbot: Assistant model loaded.")
+        except Exception as e:
+            self.assistant_status = "unavailable"
+            print(f"Error loading assistant model {self.assistant_model}: {e}")
 
     def _detect_intent(self, text):
         if not self.intent_classifier:
@@ -165,12 +189,26 @@ class Chatbot:
         return None
 
     def get_response(self, user_input):
-        intent, intent_score = self._detect_intent(user_input)
+        """
+        Returns:
+            tuple: (response_text, data_changed) where data_changed is True if assignments were modified.
+        """
         emotion = self._detect_emotion(user_input)
-
-        print(f"Chatbot Debug: Input='{user_input}', Detected Intent='{intent}' (Score: {intent_score:.2f}), Emotion='{emotion}'")
-
         response_prefix = EMOTION_ADJUSTMENTS.get(emotion, "")
+
+        if self.assistant:
+            try:
+                reply, data_changed = self.assistant.respond(user_input)
+                print(f"Chatbot Debug: Input='{user_input}', Assistant used tools={self.assistant.last_used_tools}, Emotion='{emotion}'")
+                # Tool results are templated text, so the emotion model adds the tone; the LLM's own replies already have it
+                final_response = (response_prefix + reply) if self.assistant.last_used_tools else reply
+                self._log_interaction_to_persistent_store(user_input, final_response)
+                return final_response, data_changed
+            except Exception as e:
+                print(f"Assistant error, falling back to classic replies: {e}")
+
+        intent, intent_score = self._detect_intent(user_input)
+        print(f"Chatbot Debug: Input='{user_input}', Detected Intent='{intent}' (Score: {intent_score:.2f}), Emotion='{emotion}'")
         base_response = ""
 
         # Confidence threshold for intent
@@ -200,7 +238,7 @@ class Chatbot:
         # Save to persistent log for history viewer
         self._log_interaction_to_persistent_store(user_input, final_response)
 
-        return final_response
+        return final_response, False
 
     def _log_interaction_to_persistent_store(self, user_input, bot_response):
         """Logs the user input and bot response to the persistent JSON log file."""
@@ -314,6 +352,13 @@ class Chatbot:
         return str(suggestion_list) # Fallback if it's not a list for some reason
 
     def _handle_ask_for_help(self, _):
+        if self.assistant:
+            return ("Just tell me what you need in plain English, for example:\n"
+                    "- \"Add a math quiz due Friday, high priority\"\n"
+                    "- \"I finished the lab report\"\n"
+                    "- \"Push my essay to next Monday\"\n"
+                    "- \"What do I still have to do?\" or \"Make me a study plan\"\n"
+                    "(The 'History' button shows past conversations.)")
         help_text = (
             "I can help you with the following:\n"
             "- List assignments\n"

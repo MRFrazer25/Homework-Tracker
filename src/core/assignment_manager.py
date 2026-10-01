@@ -1,5 +1,16 @@
+import functools
+import threading
 from datetime import datetime
 from .data_handler import DataHandler # Assuming DataHandler is in the same directory
+
+def _synchronized(method):
+    """Serializes changes: the GUI and the assistant's (possibly parallel) tool calls can modify data concurrently."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper
+
 
 class AssignmentManager:
     """Manages CRUD operations for assignments."""
@@ -11,6 +22,7 @@ class AssignmentManager:
             data_handler: An instance of DataHandler to load/save assignments.
         """
         self.data_handler = data_handler
+        self._lock = threading.RLock()
         self.assignments = self.data_handler.load_assignments()
         self._last_id = self._calculate_last_id()
 
@@ -27,6 +39,7 @@ class AssignmentManager:
         """Returns the current list of all assignments."""
         return self.assignments
 
+    @_synchronized
     def add_assignment(self, assignment_data: dict):
         """
         Adds a new assignment to the list and saves it.
@@ -82,6 +95,7 @@ class AssignmentManager:
             self._last_id -=1 # Decrement ID if save failed
             return False, "Error: Failed to save assignments after adding."
 
+    @_synchronized
     def update_assignment(self, updated_data: dict):
         """
         Updates an existing assignment identified by 'id' in updated_data.
@@ -133,6 +147,7 @@ class AssignmentManager:
             # Note: If save fails, in-memory change is still there. A more robust system might reload.
             return False, "Error: Failed to save assignments after update."
 
+    @_synchronized
     def delete_assignment(self, assignment_id):
         """
         Deletes an assignment by its ID.
@@ -153,6 +168,7 @@ class AssignmentManager:
                 return False, "Error: Failed to save assignments after deletion."
         return False, f"Error: Assignment with ID '{assignment_id}' not found for deletion."
 
+    @_synchronized
     def toggle_completion(self, assignment_id):
         """
         Toggles the 'completed' status of an assignment by its ID.
@@ -174,6 +190,7 @@ class AssignmentManager:
                 return False, "Error: Failed to save assignments after toggling completion."
         return False, f"Error: Assignment with ID '{assignment_id}' not found for toggling completion."
 
+    @_synchronized
     def set_completion(self, assignment_id, completed):
         """
         Sets the 'completed' status of an assignment to an explicit value.

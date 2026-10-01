@@ -55,15 +55,16 @@ def test_keyword_fallback(bot, text, expected):
 
 def test_responds_before_models_load(bot):
     assert not bot.models_ready.is_set()
-    response = bot.get_response("show my priorities")
+    response, changed = bot.get_response("show my priorities")
+    assert not changed
     assert "Urgent priority" in response
     # Most urgent group comes first
     assert response.index("Urgent") < response.index("Medium") < response.index("Low")
-    assert (bot.get_response("blah blah")).startswith("I'm still loading")
+    assert bot.get_response("blah blah")[0].startswith("I'm still loading")
 
 
 def test_study_tips_focus_on_most_urgent(bot):
-    response = bot.get_response("tips please")
+    response, _ = bot.get_response("tips please")
     assert "Tips for 'Urgent thing'" in response
 
 
@@ -77,3 +78,24 @@ def test_schedule_includes_assignment_due_today(assignments):
     assert "DUE TODAY" in schedule
     # Urgent sorts first
     assert schedule.index("Urgent thing") < schedule.index("Due today")
+
+
+class FakeAssistant:
+    def __init__(self, reply, used_tools=True, changed=True, fail=False):
+        self.reply, self.last_used_tools, self.changed, self.fail = reply, used_tools, changed, fail
+
+    def respond(self, text):
+        if self.fail:
+            raise RuntimeError("model crashed")
+        return self.reply, self.changed
+
+
+def test_assistant_handles_requests_when_loaded(bot):
+    bot.assistant = FakeAssistant("Moved 'essay' to Mon Oct 5.")
+    assert bot.get_response("push my essay to monday") == ("Moved 'essay' to Mon Oct 5.", True)
+
+
+def test_falls_back_to_classic_replies_if_assistant_errors(bot):
+    bot.assistant = FakeAssistant("", fail=True)
+    response, changed = bot.get_response("show my priorities")
+    assert "Urgent priority" in response and not changed

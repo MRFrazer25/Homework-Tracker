@@ -1,4 +1,5 @@
 import json
+import threading
 from datetime import datetime, time
 from pathlib import Path
 from src.utils.paths import DATA_DIR
@@ -66,8 +67,14 @@ class DataHandler:
             print(f"Error loading assignments: {e}")
             return [] # General catch-all
     
+    _save_lock = threading.Lock()
+
     def save_assignments(self, assignments):
         """Save assignments to JSON file"""
+        with self._save_lock:
+            return self._save_assignments(assignments)
+
+    def _save_assignments(self, assignments):
         try:
             assignments_to_save = []
             for assignment_orig in assignments:

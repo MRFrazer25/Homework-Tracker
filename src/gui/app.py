@@ -18,7 +18,7 @@ from .chatbot_tab import ChatbotTab
 
 # Utilities (if needed directly by app.py, otherwise imported by tabs)
 # from src.utils.helpers import format_date
-from src.utils.settings_manager import save_app_settings # load_app_settings is used in main.py
+from src.utils.settings_manager import save_app_settings, DEFAULT_ASSISTANT_MODEL # load_app_settings is used in main.py
 
 # ttkbootstrap themes
 # Dark themes: https://ttkbootstrap.readthedocs.io/en/latest/themes/dark/
@@ -52,7 +52,8 @@ class HomeworkTrackerApp:
         self.KNOWN_DARK_THEMES = KNOWN_DARK_THEMES
 
         try:
-            self.chatbot_instance = Chatbot(self.assignment_manager, self.study_tips_generator)
+            self.chatbot_instance = Chatbot(self.assignment_manager, self.study_tips_generator,
+                                            assistant_model=self.settings.get("assistant_model", DEFAULT_ASSISTANT_MODEL))
             self.chatbot_instance.start_loading_models()
         except Exception as e:
             print(f"Failed to initialize Chatbot in App: {e}")

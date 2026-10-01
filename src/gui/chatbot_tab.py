@@ -1,3 +1,5 @@
+import queue
+import threading
 import tkinter as tk
 from tkinter import scrolledtext, ttk, messagebox
 from .chat_history_dialog import ChatHistoryDialog
@@ -52,29 +54,84 @@ class ChatbotTab(ttk.Frame):
 
         self.history_button = ttk.Button(action_button_frame, text="History", command=self._on_show_history)
         self.history_button.pack(side=tk.LEFT)
-        
+
+        # Shows whether the AI assistant is still loading
+        self.status_label = ttk.Label(chat_frame, text="", font=("Segoe UI", 9))
+        self.status_label.grid(row=2, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        self._update_status()
+
         # Welcome message
         self._add_message("Bot", "Hello! I'm your Homework Helper. How can I assist with your assignments today? (Try typing 'help')", "bot_welcome")
 
+    def _update_status(self):
+        """Polls the chatbot's assistant status until it settles."""
+        status = getattr(self.chatbot, "assistant_status", "disabled") if self.chatbot else "disabled"
+        texts = {
+            "waiting to load": "AI assistant: starting up... (simple commands work in the meantime)",
+            "loading": "AI assistant: loading model... (the first run downloads it, which takes a few minutes)",
+            "ready": "AI assistant: ready. Ask in plain English, e.g. \"move my essay to friday\".",
+            "unavailable": "AI assistant: couldn't load, using simple commands instead (type 'help').",
+            "disabled": "",
+        }
+        self.status_label.config(text=texts.get(status, ""))
+        if status in ("waiting to load", "loading"):
+            self.after(2000, self._update_status)
+
+    def _set_busy(self, busy):
+        state = "disabled" if busy else "normal"
+        self.send_button.config(state=state)
+        self.input_field.config(state=state)
+        if not busy:
+            self.input_field.focus_set()
+
     def _on_send_message(self, event=None):
         user_input = self.input_field.get()
-        if not user_input.strip():
+        if not user_input.strip() or str(self.send_button.cget("state")) == "disabled":
             return
 
         self._add_message("You", user_input, "user")
         self.input_field.delete(0, tk.END)
 
-        try:
-            if self.chatbot:
-                bot_response = self.chatbot.get_response(user_input)
-            else:
-                bot_response = "Chatbot is not available at the moment."
-                self._add_message("Bot", bot_response, "error") # Use error tag
-                return
+        if not self.chatbot:
+            self._add_message("Bot", "Chatbot is not available at the moment.", "error")
+            return
 
+        # The model can take several seconds, so answer on a worker thread and poll for the result.
+        self._set_busy(True)
+        self.chat_display.mark_set("thinking_start", "end-1c")
+        self.chat_display.mark_gravity("thinking_start", tk.LEFT)
+        self._add_message("Bot", "Thinking...", "bot")
+        results = queue.Queue()
+
+        def work():
+            try:
+                results.put(("ok", self.chatbot.get_response(user_input)))
+            except Exception as e:
+                results.put(("error", e))
+
+        threading.Thread(target=work, daemon=True).start()
+        self._poll_response(results)
+
+    def _poll_response(self, results):
+        try:
+            kind, payload = results.get_nowait()
+        except queue.Empty:
+            self.after(100, self._poll_response, results)
+            return
+
+        # Replace the "Thinking..." placeholder with the real answer
+        self.chat_display.config(state='normal')
+        self.chat_display.delete("thinking_start", tk.END)
+        self.chat_display.config(state='disabled')
+        self._set_busy(False)
+
+        if kind == "ok":
+            bot_response, data_changed = payload
             self._add_message("Bot", bot_response, "bot")
-        except Exception as e:
-            error_msg = f"An error occurred: {e}"
+            if data_changed and hasattr(self.app_instance, 'refresh_all_tabs'):
+                self.app_instance.refresh_all_tabs()
+        else:
+            error_msg = f"An error occurred: {payload}"
             print(f"Chatbot tab error: {error_msg}")
             self._add_message("Bot", error_msg, "error")
             messagebox.showerror("Chatbot Error", "Sorry, I encountered a problem. Please try again.", parent=self.winfo_toplevel())

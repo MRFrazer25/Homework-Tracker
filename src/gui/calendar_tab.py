@@ -29,14 +29,15 @@ class CalendarTab(ttk.Frame):
         # DateEntry for date selection
         self.date_entry = ttkb.DateEntry(
             self.main_frame,
-            dateformat=self.date_format_str,
-            firstweekday=0, # Monday: 0=Monday, ..., 6=Sunday (DateEntry default is 6)
-            startdate=self.selected_date
+            date_format=self.date_format_str,
+            first_weekday=0, # Monday: 0=Monday, ..., 6=Sunday (DateEntry default is 6)
+            start_date=self.selected_date
         )
         self.date_entry.pack(pady=(0, 10), fill=tk.X, padx=0)
 
-        self.date_entry.entry.bind("<<DateEntrySelected>>", self.on_date_selected)
-        self.date_entry.entry.bind("<FocusOut>", self.on_date_selected)
+        # The popup's selection event fires on the DateEntry itself; typing is handled via the inner entry.
+        self.date_entry.bind("<<DateEntrySelected>>", self.on_date_selected)
+        self.date_entry.entry.bind("<FocusOut>", self.on_date_selected, add="+")
         self.date_entry.entry.bind("<Return>", self.on_date_selected)
 
         # Frame for displaying events for the selected date
@@ -65,21 +66,12 @@ class CalendarTab(ttk.Frame):
         Called when a date is selected in the DateEntry or entry loses focus/enter pressed.
         Updates the event listbox with assignments for the new date.
         """
-        try:
-            date_str = self.date_entry.entry.get()
-            if not date_str:
-                self.selected_date = date.today() 
-            else:
-                self.selected_date = datetime.strptime(date_str, self.date_format_str).date()
-            
-        except ValueError:
-            print(f"Invalid date format in DateEntry: {self.date_entry.entry.get()}. Using last valid date: {self.selected_date}")
-            # Update entry to show the last valid date to prevent user confusion
-            if self.selected_date:
-                self.date_entry.entry.delete(0, tk.END)
-                self.date_entry.entry.insert(0, self.selected_date.strftime(self.date_format_str))
-            self._update_event_list_for_selected_date() 
-            return
+        # get_date() falls back to the last valid date if the typed text can't be parsed
+        picked = self.date_entry.get_date()
+        if picked is not None:
+            self.selected_date = picked.date() if isinstance(picked, datetime) else picked
+        # Re-show the date in the canonical format (also replaces invalid typed text)
+        self.date_entry.set_date(self.selected_date)
 
         if hasattr(self.info_frame, 'config'): 
              self.info_frame.config(text=f"Assignments for {self.selected_date.strftime('%A, %B %d, %Y')}")
