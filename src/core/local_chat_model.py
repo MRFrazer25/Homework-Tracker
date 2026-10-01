@@ -56,7 +56,7 @@ class LocalChatModel(BaseChatModel):
 
     _tokenizer: Any = PrivateAttr(default=None)
     _model: Any = PrivateAttr(default=None)
-    _prefix_cache: Any = PrivateAttr(default=None)  # (prompt_prefix_text, past_key_values)
+    _prefix_cache: Any = PrivateAttr(default=None)  # (prefix_text, prefix_token_ids, past_key_values)
     _lock: Any = PrivateAttr(default_factory=threading.Lock)
 
     @property

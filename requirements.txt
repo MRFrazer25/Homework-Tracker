@@ -1,7 +1,7 @@
 ttkbootstrap
-Pillow
 matplotlib
 transformers
 torch
 langchain
-langchain-huggingface
+langchain-core
+langgraph

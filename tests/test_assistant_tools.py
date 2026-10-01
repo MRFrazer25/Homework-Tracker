@@ -119,3 +119,12 @@ def test_list_is_sorted_and_hides_done(tools):
 def test_study_helpers_run(tools):
     assert tools["get_study_plan"].invoke({})
     assert tools["get_study_tips"].invoke({}).startswith("Tips for")
+
+
+def test_mention_check_uses_whole_words(manager, helper, tools):
+    manager.add_assignment({'name': "Art", 'class': "Art", 'due_date': datetime(2026, 10, 3, 23, 59),
+                            'priority': "Medium", 'difficulty': 3})
+    helper.user_message = "I finished the chart for the science project"  # "art" inside "chart" isn't a mention
+    tools["mark_complete"].invoke({"assignment_name": "Science project"})
+    assert by_name(manager, "Science project")['completed']
+    assert not by_name(manager, "Art")['completed']

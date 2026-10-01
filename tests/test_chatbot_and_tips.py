@@ -95,6 +95,12 @@ def test_assistant_handles_requests_when_loaded(bot):
     assert bot.get_response("push my essay to monday") == ("Moved 'essay' to Mon Oct 5.", True)
 
 
+def test_help_shows_examples_even_with_assistant(bot):
+    bot.assistant = FakeAssistant("should not be used")
+    response, changed = bot.get_response("help")
+    assert "plain English" in response and not changed
+
+
 def test_falls_back_to_classic_replies_if_assistant_errors(bot):
     bot.assistant = FakeAssistant("", fail=True)
     response, changed = bot.get_response("show my priorities")

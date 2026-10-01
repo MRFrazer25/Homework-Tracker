@@ -149,8 +149,7 @@ class ChatbotTab(ttk.Frame):
     def _on_show_history(self):
         """Handles the Show History button click by opening the ChatHistoryDialog."""
         # Pass self.app_instance which ChatHistoryDialog expects for theme settings etc.
-        dialog = ChatHistoryDialog(self.winfo_toplevel(), self.app_instance)
-        # The dialog will handle itself (modal, etc.)
+        ChatHistoryDialog(self.winfo_toplevel(), self.app_instance)  # The dialog manages itself (modal, etc.)
     
     def refresh_data(self):
         """Called when data might have changed elsewhere (e.g., assignments updated)."""

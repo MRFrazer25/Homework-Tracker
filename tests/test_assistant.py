@@ -28,8 +28,8 @@ class ScriptedChatModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=self.replies.pop(0))])
 
 
-def call(name, **args):
-    return {"name": name, "args": args, "id": f"call_{name}", "type": "tool_call"}
+def call(tool_name, **args):
+    return {"name": tool_name, "args": args, "id": f"call_{tool_name}", "type": "tool_call"}
 
 
 @pytest.fixture
@@ -74,3 +74,36 @@ def test_history_is_sent_back_and_trimmed(manager):
     last_prompt = [m.content for m in model.seen[-1] if isinstance(m, HumanMessage)]
     # Only the 2 previous exchanges plus the new message are sent
     assert last_prompt == ["message 1", "message 2", "message 3"]
+
+
+@pytest.mark.parametrize("bad_call", [
+    call("delete_assignment", assignment_name="hw #1"),  # A tool that doesn't exist
+    call("reschedule", assignment_name="hw #1"),  # Missing a required argument
+    call("add_assignment", name="Quiz", class_name="Math", due_date="friday", difficulty="hard"),  # Wrong type
+])
+def test_tool_errors_are_not_shown_to_the_user(manager, bad_call):
+    assistant, _ = make_assistant(manager, [AIMessage("", tool_calls=[bad_call])] + [AIMessage("")] * 5)
+    reply, changed = assistant.respond("do something")
+    assert "Error" not in reply and "kwargs" not in reply
+    assert reply.startswith("Sorry")
+    assert not changed
+
+
+def test_partial_success_reports_only_what_worked(manager):
+    assistant, _ = make_assistant(manager, [
+        AIMessage("", tool_calls=[call("mark_complete", assignment_name="hw #1"), call("reschedule", assignment_name="lab report")]),
+    ])
+    reply, changed = assistant.respond("finish hw and move the lab")
+    assert reply == "Marked 'hw #1' as done."
+    assert changed
+
+
+def test_model_stuck_in_a_loop_is_cut_off(manager):
+    # Each reply needs its own tool-call id, as real models produce
+    looping = [AIMessage("", tool_calls=[{**call("delete_assignment", assignment_name="hw #1"), "id": f"call_{i}"}])
+               for i in range(50)]
+    assistant, model = make_assistant(manager, looping)
+    reply, changed = assistant.respond("delete hw")
+    assert "stuck" in reply
+    assert len(model.seen) < 10
+    assert assistant.history == []

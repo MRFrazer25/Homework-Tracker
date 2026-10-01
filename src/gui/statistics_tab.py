@@ -1,4 +1,3 @@
-import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -126,8 +125,7 @@ class StatisticsTab(ttk.Frame):
                 "text.color": fg_color,
                 "patch.edgecolor": fg_color
             }
-        except Exception as e:
-            # print(f"StatisticsTab: Error getting ttkbootstrap colors for MPL: {e}. Using main fallback.")
+        except Exception:  # ttkbootstrap colors unavailable; use the fallback palette
             return fallback_style
 
     def _initial_theme_setup(self):

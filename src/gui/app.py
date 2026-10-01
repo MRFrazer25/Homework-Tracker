@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import ttk, messagebox 
-from functools import partial # For menu commands with arguments
 
 # Core components
 from src.core.data_handler import DataHandler

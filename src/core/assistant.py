@@ -2,6 +2,7 @@
 
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.errors import GraphRecursionError
 
 from src.core.assistant_tools import AssistantTools
 from src.core.local_chat_model import LocalChatModel
@@ -17,6 +18,8 @@ SYSTEM_PROMPT = (
 
 # How many past exchanges (user message plus everything after it) to send back to the model
 HISTORY_EXCHANGES = 2
+# Cap on agent graph steps per request (each model call and tool round is a couple of steps)
+MAX_AGENT_STEPS = 8
 
 
 class Assistant:
@@ -36,10 +39,6 @@ class Assistant:
             self.model.warm_up(SYSTEM_PROMPT, self.tool_list)
         return self
 
-    @property
-    def ready(self):
-        return getattr(self.model, "loaded", True)
-
     def _recent_history(self):
         """The last few exchanges, cut at a user message so tool calls stay paired with their results."""
         starts = [i for i, m in enumerate(self.history) if isinstance(m, HumanMessage)]
@@ -57,16 +56,25 @@ class Assistant:
         self.tools.data_changed = False
         self.tools.user_message = user_input
         messages = self._recent_history() + [HumanMessage(user_input)]
-        result = self.agent.invoke({"messages": messages})
+        try:
+            result = self.agent.invoke({"messages": messages}, {"recursion_limit": MAX_AGENT_STEPS})
+        except GraphRecursionError:
+            # The model kept calling tools without finishing; keep the history as it was
+            self.last_used_tools = False
+            return "Sorry, I got stuck on that one. Could you try rephrasing it?", self.tools.data_changed
         new_messages = result["messages"][len(messages):]
 
-        # Tools return their result directly; join them in order. Otherwise use the model's text.
-        tool_replies = [m.content for m in new_messages if isinstance(m, ToolMessage)]
+        # Tools return their result directly; join the successful ones in order. Tool errors (an unknown tool or
+        # bad arguments) are for the model, not the user, so fall back to the model's text or a plain apology.
+        tool_messages = [m for m in new_messages if isinstance(m, ToolMessage)]
+        tool_replies = [m.content for m in tool_messages if m.status != "error"]
         self.last_used_tools = bool(tool_replies)
         if tool_replies:
             reply = "\n".join(tool_replies)
         else:
             reply = next((m.content for m in reversed(new_messages) if isinstance(m, AIMessage) and m.content), "")
+            if tool_messages and not reply:
+                reply = "Sorry, I couldn't do that. Type 'help' to see what I can do."
         reply = reply or "Sorry, I didn't catch that. Could you rephrase?"
 
         self.history = messages + new_messages

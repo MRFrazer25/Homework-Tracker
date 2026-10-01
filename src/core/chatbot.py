@@ -43,6 +43,12 @@ EMOTION_ADJUSTMENTS = {
     "neutral": ""
 }
 
+# Emotions whose prefix reads naturally in front of an action result ("That's great to hear! Marked ... as done.")
+TOOL_REPLY_EMOTIONS = {"joy", "sadness", "anger", "fear"}
+
+# A bare request for help always shows the built-in examples
+HELP_REQUEST = re.compile(r"\s*(help|\?|commands|what can you do)\s*[.!?]*\s*", re.IGNORECASE)
+
 # Keyword regex -> intent fallback used when the intent model isn't available. Checked in order.
 KEYWORD_INTENTS = [
     (r"\btips?\b", "get study tips"),
@@ -196,16 +202,22 @@ class Chatbot:
         emotion = self._detect_emotion(user_input)
         response_prefix = EMOTION_ADJUSTMENTS.get(emotion, "")
 
-        if self.assistant:
+        if self.assistant and not HELP_REQUEST.fullmatch(user_input):
             try:
                 reply, data_changed = self.assistant.respond(user_input)
                 print(f"Chatbot Debug: Input='{user_input}', Assistant used tools={self.assistant.last_used_tools}, Emotion='{emotion}'")
                 # Tool results are templated text, so the emotion model adds the tone; the LLM's own replies already have it
-                final_response = (response_prefix + reply) if self.assistant.last_used_tools else reply
+                use_prefix = self.assistant.last_used_tools and emotion in TOOL_REPLY_EMOTIONS
+                final_response = (response_prefix + reply) if use_prefix else reply
                 self._log_interaction_to_persistent_store(user_input, final_response)
                 return final_response, data_changed
             except Exception as e:
                 print(f"Assistant error, falling back to classic replies: {e}")
+
+        if HELP_REQUEST.fullmatch(user_input):
+            final_response = self._handle_ask_for_help(None)
+            self._log_interaction_to_persistent_store(user_input, final_response)
+            return final_response, False
 
         intent, intent_score = self._detect_intent(user_input)
         print(f"Chatbot Debug: Input='{user_input}', Detected Intent='{intent}' (Score: {intent_score:.2f}), Emotion='{emotion}'")
@@ -281,7 +293,7 @@ class Chatbot:
             status = "Completed" if assign.get('completed', False) else "Incomplete"
             due_date_str = assign.get('due_date', 'N/A')
             if isinstance(due_date_str, datetime):
-                due_date_str = due_date_str.strftime('%Y-%m-%d %H:%M')
+                due_date_str = due_date_str.strftime('%Y-%m-%d')
             
             response_lines.append(f"{i+1}. {assign['name']}:")
             response_lines.append(f"   - Due: {due_date_str}")

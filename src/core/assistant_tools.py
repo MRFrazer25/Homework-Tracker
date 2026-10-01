@@ -44,7 +44,7 @@ class AssistantTools:
         # the user just named. If the message names exactly one assignment and the model chose something
         # the user didn't say, trust the user's words.
         said = self.user_message.lower()
-        mentioned = [a for n, a in names.items() if n and n.lower() in said]
+        mentioned = [a for n, a in names.items() if n and re.search(rf"(?<!\w){re.escape(n.lower())}(?!\w)", said)]
         if len(mentioned) == 1 and query not in said:
             return mentioned[0], None
 

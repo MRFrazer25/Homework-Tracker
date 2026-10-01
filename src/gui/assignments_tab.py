@@ -332,7 +332,7 @@ class AssignmentsTab(ttk.Frame):
                         assignment_id, # Value for the hidden 'id' column
                         assignment.get('name', 'N/A'),
                         assignment.get('class', 'N/A'),
-                        format_date(assignment.get('due_date')), 
+                        format_date(assignment.get('due_date'), include_time=False), 
                         assignment.get('priority', 'N/A'),
                         difficulty_display,
                         completed_status
