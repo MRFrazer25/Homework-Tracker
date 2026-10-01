@@ -36,7 +36,7 @@ class AssignmentManager:
         Args:
             assignment_data: A dictionary containing the new assignment's details.
                              Expected keys: 'name', 'class', 'due_date' (datetime object),
-                             'priority', 'difficulty', 'details' (optional), 'completed' (optional).
+                             'priority', 'difficulty', 'completed' (optional).
 
         Returns:
             tuple: (bool_success, message_or_new_id)
@@ -48,7 +48,6 @@ class AssignmentManager:
         due_date = assignment_data.get('due_date') # Expected to be a datetime object
         priority = assignment_data.get('priority')
         difficulty = assignment_data.get('difficulty')
-        details = assignment_data.get('details', "")
         completed = assignment_data.get('completed', False)
 
         # Basic validation
@@ -73,7 +72,6 @@ class AssignmentManager:
             'due_date': due_date, # Already a datetime object
             'priority': str(priority), 
             'difficulty': difficulty_val,
-            'details': str(details),
             'completed': bool(completed),
             'date_added': datetime.now() 
         }
@@ -107,6 +105,8 @@ class AssignmentManager:
         # Update fields present in updated_data
         for key, value in updated_data.items():
             if key == 'id': # Do not update ID
+                continue
+            if key == 'details': # Ignore details if present in data from older versions
                 continue
             if key == 'due_date':
                 if isinstance(value, datetime):
@@ -183,96 +183,3 @@ class AssignmentManager:
             if str(assignment.get('id')) == str(assignment_id):
                 return assignment
         return None
-
-
-if __name__ == '__main__':
-    # Example usage for testing AssignmentManager
-    # This requires a mock or real DataHandler
-    class MockDataHandler:
-        def __init__(self):
-            self.temp_assignments = []
-        def load_assignments(self):
-            print("MockDataHandler: Loading assignments")
-            return list(self.temp_assignments) # Return a copy
-        def save_assignments(self, assignments_list):
-            print(f"MockDataHandler: Saving {len(assignments_list)} assignments")
-            self.temp_assignments = list(assignments_list) # Save a copy
-            return True
-
-    mock_dh = MockDataHandler()
-    manager = AssignmentManager(mock_dh)
-
-    print("Initial assignments:", manager.get_assignments())
-    
-    # Add an assignment
-    success_add1, result1 = manager.add_assignment({
-        'name': "Test Math HW", 'class': "Math", 
-        'due_date': datetime.strptime("2024-12-20 14:00", '%Y-%m-%d %H:%M'), 
-        'priority': "High", 'difficulty': 7, 'details': "Chapter 1 problems"
-    })
-    added_id1 = None
-    if success_add1:
-        added_id1 = result1
-        print(f"Added: Test Math HW with ID {added_id1}")
-    else:
-        print(f"Failed to add Test Math HW: {result1}")
-
-    success_add2, result2 = manager.add_assignment({
-        'name': "History Reading", 'class': "History", 
-        'due_date': datetime.strptime("2024-12-15 23:59", '%Y-%m-%d %H:%M'),
-        'priority': "Medium", 'difficulty': 4
-    })
-    added_id2 = None
-    if success_add2:
-        added_id2 = result2
-        print(f"Added: History Reading with ID {added_id2}")
-    else:
-        print(f"Failed to add History Reading: {result2}")
-
-    print("Current assignments count:", len(manager.get_assignments()))
-    # print("Full list:", manager.get_assignments())
-
-
-    # Update an assignment
-    if added_id1:
-        success_update, msg_update = manager.update_assignment({
-            'id': added_id1, 'completed': True, 'difficulty': 8, 'details': "All problems done."
-        })
-        if success_update:
-            updated_assign1 = manager.get_assignment_by_id(added_id1)
-            print(f"Updated 'Test Math HW': Completed={updated_assign1['completed']}, Difficulty={updated_assign1['difficulty']}")
-        else:
-            print(f"Failed to update Test Math HW: {msg_update}")
-
-
-    # Toggle completion
-    if added_id2:
-        original_assign2 = manager.get_assignment_by_id(added_id2) # Get object before toggle for name
-        name_assign2 = original_assign2.get('name') if original_assign2 else "ID " + str(added_id2)
-
-        success_toggle1, msg_toggle1 = manager.toggle_completion(added_id2)
-        if success_toggle1:
-            toggled_assign2 = manager.get_assignment_by_id(added_id2)
-            print(f"Toggled '{name_assign2}': Completed={toggled_assign2['completed']}")
-        else:
-            print(f"Failed to toggle {name_assign2}: {msg_toggle1}")
-
-        success_toggle2, msg_toggle2 = manager.toggle_completion(added_id2) # Toggle back
-        if success_toggle2:
-            toggled_assign2_again = manager.get_assignment_by_id(added_id2)
-            print(f"Toggled again '{name_assign2}': Completed={toggled_assign2_again['completed']}")
-        else:
-             print(f"Failed to toggle again {name_assign2}: {msg_toggle2}")
-
-
-    # Delete an assignment
-    if added_id1:
-        original_assign1 = manager.get_assignment_by_id(added_id1) # Get object before delete for name
-        name_assign1 = original_assign1.get('name') if original_assign1 else "ID " + str(added_id1)
-        success_delete, msg_delete = manager.delete_assignment(added_id1)
-        if success_delete:
-            print(f"Deleted '{name_assign1}'")
-        else:
-            print(f"Failed to delete {name_assign1}: {msg_delete}")
-    
-    print("Final assignments count:", len(manager.get_assignments()))

@@ -13,7 +13,7 @@ def format_time_remaining(due_date):
         str: Formatted string showing time remaining
     """
     if not isinstance(due_date, datetime):
-        return "Invalid date" # Or handle error appropriately
+        return "Invalid date"
 
     now = datetime.now()
     time_delta = due_date - now
@@ -23,7 +23,7 @@ def format_time_remaining(due_date):
     if total_seconds <= 0:
         return "Overdue!"
     
-    if total_seconds < 60: # Less than a minute
+    if total_seconds < 60:
         return "Less than a minute remaining"
 
     days = time_delta.days
@@ -58,10 +58,10 @@ def format_date(date_obj, include_time=True):
         return "N/A" # Handle None or invalid types gracefully
     
     if include_time:
-        return date_obj.strftime('%Y-%m-%d %H:%M') # Changed to H:M for consistency with input
+        return date_obj.strftime('%Y-%m-%d %H:%M')
     return date_obj.strftime('%Y-%m-%d')
 
-# Heuristic: Estimated hours of work per point of difficulty.
+# Estimated hours of work per point of difficulty.
 HOURS_PER_DIFFICULTY_POINT = 1.5
 
 def calculate_workload_hours(assignments, start_date=None, end_date=None):
@@ -128,7 +128,20 @@ def get_priority_color(priority):
     }.get(str(priority).capitalize(), '#A9A9A9')  # DarkGray for unknown or default
 
 ALLOWED_PRIORITIES = ["Low", "Medium", "High", "Urgent"]
-ALLOWED_DIFFICULTY = list(range(1, 11)) # Changed to 1-10
+ALLOWED_DIFFICULTY = list(range(1, 11))
+
+# Date formats for use with ttkbootstrap.DateEntry and strptime/strftime
+# These keys should match what's stored in settings (date_format_template_name)
+DATE_FORMATS = {
+    'default': '%Y-%m-%d', 
+    'iso8601': '%Y-%m-%d',
+    'us_short': '%m/%d/%y',
+    'us_long': '%m/%d/%Y',
+    'eur_short': '%d/%m/%y',
+    'eur_long': '%d/%m/%Y',
+    'verbose': '%B %d, %Y', # e.g., July 04, 2024
+    'verbose_with_day': '%A, %B %d, %Y' # e.g., Thursday, July 04, 2024
+}
 
 def get_class_emoji(class_name):
     """Get an emoji representing a class."""

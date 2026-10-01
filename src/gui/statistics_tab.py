@@ -1,10 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates # Ensure this is imported
+import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-# from ...utils.helpers import format_date # If needed
-from datetime import datetime, timedelta, date # Added date import
+from datetime import datetime, timedelta, date
 from collections import Counter
 
 # Default FALLBACK Matplotlib style parameters if ttkbootstrap colors are unavailable
@@ -45,14 +44,24 @@ class StatisticsTab(ttk.Frame):
         super().__init__(parent)
         self.assignments_data_source = assignments_data_provider
         self.app_callbacks = app_callbacks
-        self.app_instance = self.app_callbacks['get_master_app']()
+        self.app_instance = self.app_callbacks['get_master_app']() # type: ignore
         
         self.fig = None
         self.canvas = None
         self.ax_priority = None
-        self.ax_category = None
+        self.ax_category = None # This will be for 'Assignments by Class' or similar bar chart
         self.ax_difficulty = None
         self.ax_timeline = None
+
+        # Initialize theme-related attributes to sensible defaults
+        # These will be updated by on_theme_changed
+        self.text_color = 'black'
+        self.plot_bg_color = 'white'
+        self.figure_bg_color = '#F0F0F0'
+        self.grid_color = 'lightgrey'
+        self.chart_font_size = 12
+        self.axis_label_font_size = 10
+        self.tick_label_font_size = 9
         
         self.charts_container_frame = ttk.Frame(self) # Parent for canvas OR no_data_label
         self.charts_container_frame.pack(fill='both', expand=True, padx=10, pady=5)
@@ -224,12 +233,6 @@ class StatisticsTab(ttk.Frame):
         if self.canvas:
             self.canvas.draw_idle() # Redraw with new styles
 
-        # We need to refresh the chart data as well, because colors for bars/pies
-        # might need to be re-evaluated or are set during chart creation.
-        # However, calling full refresh_charts() here might be too much if only colors changed.
-        # For simplicity now, we'll call it. If performance is an issue, this could be optimized.
-        # self.refresh_charts() # REMOVED: To prevent potential issues and redundant calls.
-
     def refresh_charts(self):
         """Clears and redraws all charts with current assignment data, or shows 'no data' message."""
         if not self.fig or not self.canvas: # Ensure UI is set up
@@ -257,7 +260,6 @@ class StatisticsTab(ttk.Frame):
             self.canvas_widget.pack(fill='both', expand=True)
 
         # Apply current theme styles before drawing new data
-        # This is important because plt.rcParams might have been reset or changed elsewhere.
         if self.app_instance and hasattr(self.app_instance, 'is_dark_theme'):
              current_style = self._get_matplotlib_style(self.app_instance.is_dark_theme())
              plt.rcParams.update(current_style)
@@ -308,7 +310,7 @@ class StatisticsTab(ttk.Frame):
         labels = list(active_priorities.keys())
         values = list(active_priorities.values())
         
-        # Updated vibrant colors
+        # Vibrant colors
         colors_map = {'High': '#FF6347', 'Medium': '#FFA500', 'Low': '#32CD32', 'Other': '#778899'} # Tomato, Orange, LimeGreen, LightSlateGray
         pie_colors = [colors_map.get(label, '#778899') for label in labels]
 
@@ -327,9 +329,6 @@ class StatisticsTab(ttk.Frame):
         
     def _create_category_chart(self, ax, assignments):
         """Creates a bar chart of assignment categories (using 'class' as category)."""
-        # This function will now create a BAR chart of assignments by PRIORITY
-        # to match the visual evidence from the user's image for the top-right plot.
-        # The original attempt to make this plot by 'class' was conflicting.
 
         if not assignments:
             ax.text(0.5, 0.5, "No assignment data for priority bar chart.", ha='center', va='center', fontsize=self.axis_label_font_size, color=self.text_color)
@@ -454,15 +453,17 @@ class StatisticsTab(ttk.Frame):
                     dt_obj = due_date_val.date()
                 elif isinstance(due_date_val, date): # Handle if it's already a date object
                     dt_obj = due_date_val
-                else:
-                    continue 
-                
                 if dt_obj >= today: # Only include today or future dates
                     # Store the original datetime if available for precise sorting, or date for plotting
                     plot_date = datetime.combine(dt_obj, datetime.min.time()) # Use datetime for mpl plotting
                     upcoming_assignments.append({'date': plot_date, 'priority': a.get('priority', 'Other')})
 
-        ax.set_title('Assignment Timeline (Upcoming)', fontsize=self.chart_font_size)
+        ax.set_title(
+            'Upcoming Assignment Due Dates (Next 30 Days)', 
+            fontsize=self.chart_font_size, 
+            color=self.text_color, 
+            pad=15 # Add some padding to avoid overlap with ticks if title is long
+        )
         ax.set_xlabel('Due Date', fontsize=self.axis_label_font_size)
         ax.set_yticks([]) # Hide y-axis
 
@@ -512,76 +513,3 @@ class StatisticsTab(ttk.Frame):
             ax.set_xticks([])
         
         ax.grid(axis='x', linestyle='--', alpha=0.5, color=self.grid_color) # Only show x-grid lines
-
-
-if __name__ == '__main__':
-    # Example usage for testing this tab independently
-    root = tk.Tk()
-    root.title("Statistics Tab Test")
-    
-    # Sample assignments data for testing
-    # datetime and timedelta are imported at the top of the file
-    sample_assignments = [
-        {'name': 'Math HW 1', 'priority': 'High', 'class': 'Math', 'difficulty': 7, 'due_date': datetime.now() + timedelta(days=2), 'completed': False},
-        {'name': 'History Essay', 'priority': 'Medium', 'class': 'History', 'difficulty': 5, 'due_date': datetime.now() + timedelta(days=5), 'completed': False},
-        {'name': 'Science Lab', 'priority': 'High', 'class': 'Science', 'difficulty': 8, 'due_date': datetime.now() + timedelta(days=1), 'completed': False},
-        {'name': 'English Reading', 'priority': 'Low', 'class': 'English', 'difficulty': 3, 'due_date': datetime.now() + timedelta(days=10), 'completed': True}, # This one is completed
-        {'name': 'CS Project', 'priority': 'High', 'class': 'CS', 'difficulty': 9, 'due_date': datetime.now() + timedelta(days=7), 'completed': False},
-        {'name': 'Art Sketch', 'priority': 'Other', 'class': 'Art', 'difficulty': 2, 'due_date': datetime.now() + timedelta(days=3), 'completed': False}, # Test 'Other' priority
-        {'name': 'Music Practice', 'priority': 'Medium', 'class': 'Music', 'difficulty': None, 'due_date': datetime.now() + timedelta(days=4), 'completed': False}, # Test missing difficulty
-    ]
-
-    # In the main app, assignments_data_provider is a callable.
-    # For testing, we can pass the list directly or wrap it.
-    def get_test_assignments():
-        return sample_assignments
-
-    # Simulate the main app's theme settings for testing
-    class MockApp(tk.Tk):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self._is_dark = False # Start with light
-            self.settings_manager = self # Simplified for test
-
-        def get_current_theme_settings(self):
-            if self._is_dark:
-                return {"text_color": "white", "background_color": "#2E2E2E", "entry_bg": "#3C3C3C", "entry_fg": "white", "plot_bg": "#2E2E2E"}
-            return {"text_color": "black", "background_color": "white", "entry_bg": "white", "entry_fg": "black", "plot_bg": "white"}
-
-        def is_dark_theme(self):
-            return self._is_dark
-
-        def toggle_theme(self): # Method to simulate theme change
-            self._is_dark = not self._is_dark
-            print(f"MockApp: Theme changed. Dark: {self._is_dark}")
-            # In a real app, this would trigger on_theme_changed in tabs
-            if hasattr(self.statistics_tab, 'on_theme_changed'):
-                 self.statistics_tab.on_theme_changed(self._is_dark)
-
-
-    # root = tk.Tk() # Original root
-    root = MockApp() # Use MockApp for testing
-    root.title("Statistics Tab Test")
-
-    def get_test_assignments():
-        return sample_assignments
-
-    # Provide mock app_callbacks for StatisticsTab
-    mock_app_callbacks = {
-        'get_master_app': lambda: root, # MockApp instance itself has the methods
-        # Add other callbacks if StatisticsTab starts using them
-    }
-    tab = StatisticsTab(root, get_test_assignments, mock_app_callbacks)
-    root.statistics_tab = tab # Allow MockApp to access the tab
-    tab.pack(expand=True, fill='both')
-    
-    # Add a button to test theme toggling
-    theme_button = ttk.Button(root, text="Toggle Theme (Test)", command=root.toggle_theme)
-    theme_button.pack(pady=5)
-
-    # Initial theme setup for the tab (needed because __init__ defers it)
-    # root.statistics_tab.on_theme_changed(root.is_dark_theme())
-    # root.statistics_tab.refresh_charts()
-    # The _initial_theme_setup will handle this.
-
-    root.mainloop()

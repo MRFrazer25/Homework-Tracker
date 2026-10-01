@@ -2,7 +2,7 @@ import json
 import os
 
 SETTINGS_FILE = "data/settings.json"
-DEFAULT_THEME = "clam" # Or a preferred default like 'arc' or 'radiance' from ttkthemes
+DEFAULT_THEME = "clam"
 
 def load_app_settings():
     """Loads application settings from a JSON file."""
@@ -43,38 +43,3 @@ def save_app_settings(settings_dict):
         print(f"Settings saved to {SETTINGS_FILE}")
     except Exception as e:
         print(f"Error saving settings to {SETTINGS_FILE}: {e}")
-
-if __name__ == '__main__':
-    # Test functions
-    print("Testing settings manager...")
-    # Clean up existing file for a fresh test if needed
-    if os.path.exists(SETTINGS_FILE):
-        os.remove(SETTINGS_FILE)
-        print(f"Removed existing {SETTINGS_FILE} for testing.")
-
-    # Test loading (should create default)
-    settings = load_app_settings()
-    print(f"Loaded settings (first time): {settings}")
-    assert settings["theme"] == DEFAULT_THEME
-
-    # Test saving
-    settings["theme"] = "arc"
-    settings["new_setting"] = 123
-    save_app_settings(settings)
-
-    # Test loading again
-    reloaded_settings = load_app_settings()
-    print(f"Reloaded settings: {reloaded_settings}")
-    assert reloaded_settings["theme"] == "arc"
-    assert reloaded_settings["new_setting"] == 123
-    
-    # Test corrupt file
-    with open(SETTINGS_FILE, 'w') as f:
-        f.write("this is not json")
-    print(f"Corrupted {SETTINGS_FILE} for testing.")
-    corrupt_load_settings = load_app_settings()
-    print(f"Loaded settings (after corruption): {corrupt_load_settings}")
-    assert corrupt_load_settings["theme"] == DEFAULT_THEME
-
-
-    print("Settings manager test complete.") 

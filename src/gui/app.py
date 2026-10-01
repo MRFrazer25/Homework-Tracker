@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox # filedialog might be needed for add/edit dialogs later
+from tkinter import ttk, messagebox 
 from functools import partial # For menu commands with arguments
 
 # Core components
@@ -7,7 +7,7 @@ from src.core.data_handler import DataHandler
 from src.core.assignment_manager import AssignmentManager
 from src.core.study_tips import StudyTipsGenerator
 from src.core.chatbot import Chatbot
-# Chatbot core logic is used by ChatbotTab, not directly here unless app needs to send messages
+# Chatbot core logic is used by Chatbot Tab, not directly here unless app needs to send messages
 
 # GUI Tab Modules
 from .dashboard_tab import DashboardTab
@@ -42,9 +42,8 @@ class HomeworkTrackerApp:
         Initializes the main application.
         Sets up data handling, assignment management, styles, and UI widgets.
         """
-        self.root = root  # root is now a ttkbootstrap.Window instance
+        self.root = root
         self.settings = settings
-        # self.root.title("Homework Tracker") # Title is set in main.py
         self.data_handler = DataHandler()
         self.assignment_manager = AssignmentManager(self.data_handler)
         self.study_tips_generator = StudyTipsGenerator()
@@ -73,7 +72,6 @@ class HomeworkTrackerApp:
         self._create_main_widgets()
         self._create_menu()
         # self.apply_theme() # Initial theme is set by ttkbootstrap.Window in main.py
-        # We still need to inform tabs about the initial theme for their custom elements
         self.refresh_themed_widgets()
 
     def _setup_styles(self):
@@ -82,10 +80,6 @@ class HomeworkTrackerApp:
            not fully covered by the theme, or for custom named styles.
         """
         self.style = self.root.style # Get the style object from the ttkbootstrap Window
-
-        # ttkbootstrap themes are quite comprehensive.
-        # We might not need as many manual style.configure calls.
-        # However, we can still define custom styles or tweak existing ones.
 
         try:
             self.style.configure('Header.TLabel', font=('Helvetica', 16, 'bold'))
@@ -169,13 +163,6 @@ class HomeworkTrackerApp:
             "entry_fg": entry_fg
         }
 
-    def apply_theme(self):
-        """DEPRECATED - Theme is applied by ttkbootstrap.Window or self.change_theme."""
-        # Initial theme is set when ttkbootstrap.Window is created.
-        # Subsequent changes are via self.change_theme.
-        # We call refresh_themed_widgets after initial setup and after theme changes.
-        pass
-
     def _create_main_widgets(self):
         """Creates and packs the main UI components like the notebook for tabs."""
         self.notebook = ttk.Notebook(self.root)
@@ -189,7 +176,8 @@ class HomeworkTrackerApp:
             'toggle_completion': self.handle_toggle_completion_request,
             'refresh_all_tabs': self.refresh_all_tabs,
             'get_theme_settings': self.get_current_theme_settings, # Crucial for dialogs/custom tk widgets
-            'get_master_app': lambda: self
+            'get_master_app': lambda: self,
+            'get_date_format_template_name': lambda: self.settings.get('date_format_template_name', 'default')
         }
 
         self.dashboard_tab_instance = DashboardTab(self.notebook, assignments_provider, app_callbacks)
@@ -212,19 +200,7 @@ class HomeworkTrackerApp:
             self.study_tips_generator
         ) 
         self.notebook.add(self.chatbot_tab_instance, text='Chatbot')
-        
         self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
-
-    def _create_menu(self):
-        """Configures the main application menu. (Currently empty as File menu is removed)"""
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
-
-        # File menu removed as per user request
-        # file_menu = tk.Menu(menubar, tearoff=0)
-        # menubar.add_cascade(label="File", menu=file_menu)
-        # file_menu.add_command(label="Exit", command=self.root.quit)
-        pass # Menu bar is now empty
 
     def change_theme(self, theme_name_or_label):
         """Changes the application theme using ttkbootstrap and saves the setting."""
@@ -376,5 +352,3 @@ class HomeworkTrackerApp:
     def run(self):
         """Starts the Tkinter main event loop."""
         self.root.mainloop()
-
-# No if __name__ == '__main__': block here, main.py handles app startup.

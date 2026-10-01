@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import scrolledtext, ttk, messagebox
-from .chat_history_dialog import ChatHistoryDialog # Import the new dialog
-# Remove: from src.core.chatbot import Chatbot # We'll get chatbot instance from app
+from .chat_history_dialog import ChatHistoryDialog
 
 class ChatbotTab(ttk.Frame):
     def __init__(self, parent, app_instance, chatbot_instance, assignment_manager, study_tips_generator):
@@ -32,7 +31,7 @@ class ChatbotTab(ttk.Frame):
             wrap=tk.WORD,
             state='disabled',
             height=15,
-            font=("Segoe UI", 11) # Changed from 10 to 11
+            font=("Segoe UI", 11)
         )
         self.chat_display.grid(row=0, column=0, columnspan=2, sticky="nsew", pady=(0,10))
         # Initial tag configurations will be overridden by on_theme_changed
@@ -98,10 +97,6 @@ class ChatbotTab(ttk.Frame):
     
     def refresh_data(self):
         """Called when data might have changed elsewhere (e.g., assignments updated)."""
-        # The new chatbot is more conversational, less reliant on immediate external refreshes for its core logic.
-        # If specific commands *require* a UI update based on chatbot actions, that would be handled differently.
-        # For now, this can be a placeholder or used if the chatbot triggers UI-specific events.
-        # self._add_message("System", "Data has been refreshed.", "system_info_tag") # Example
         pass
 
     def on_theme_changed(self, is_dark_theme=None):
@@ -175,34 +170,3 @@ class ChatbotTab(ttk.Frame):
         # Refresh chat display if it's already populated to re-apply tags might be complex.
         # New messages will use the new tag colors.
         # A full re-render of chat history on theme change would be needed for immediate effect on old messages.
-
-
-if __name__ == '__main__':
-    # Example usage for testing this tab independently
-    root = tk.Tk()
-    root.title("Chatbot Tab Test")
-
-    # For testing, we need a mock DataHandler, assignments_provider, and theme_provider
-    class MockDataHandler:
-        def load_assignments(self): return [] 
-        def save_assignments(self, data): pass 
-
-    mock_data_handler = MockDataHandler()
-    
-    from datetime import datetime, timedelta 
-    sample_assignments = [
-        {'name': 'Test HW', 'due_date': datetime.now(), 'priority': 'High', 'class': 'Test', 'difficulty': 5, 'completed': False}
-    ]
-    def get_sample_assignments():
-        return sample_assignments
-    
-    # Mock theme provider for testing
-    def get_mock_theme_settings():
-        return {"entry_bg": "white", "entry_fg": "black"} # Basic light theme defaults
-
-    mock_app_callbacks = {'get_theme_settings': get_mock_theme_settings}
-
-    # Pass all required arguments, including app_callbacks
-    tab = ChatbotTab(root, mock_data_handler, get_sample_assignments, mock_app_callbacks)
-    tab.pack(expand=True, fill='both')
-    root.mainloop()

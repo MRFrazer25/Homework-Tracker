@@ -2,11 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, timedelta # If needed for summaries
 import tkinter.font as tkFont # ADDED IMPORT
-# No longer need functools.partial here if dialog is removed
 from src.utils.helpers import get_priority_color # Import the helper
-# Import CURATED_THEMES from app.py or a shared constants module if it's moved
-# For now, we assume app_callbacks will provide a way to change theme
-# from ..app import CURATED_THEMES # This relative import might be tricky depending on execution context
 
 class DashboardTab(ttk.Frame):
     """Tab for displaying a dashboard overview, including upcoming assignments."""
@@ -22,15 +18,6 @@ class DashboardTab(ttk.Frame):
         super().__init__(parent)
         self.assignments_provider = assignments_data_provider
         self.app_callbacks = app_callbacks
-        # self.master_app should be resolved by parent.master.master if Notebook is direct child of ThemedTk root
-        # If app.py wraps ThemedTk in another frame, this might need adjustment.
-        # Assuming app.py structure: root (ThemedTk) -> app_instance (contains notebook) -> notebook (parent for this tab)
-        # So, self.parent is notebook. self.parent.master is app_instance's main frame (usually root itself).
-        # Let's try to get app_instance more directly if possible, or ensure master_app is correctly assigned.
-        # A common pattern is for the app instance to be passed in app_callbacks or directly.
-        # For now, assuming app_callbacks['get_app_instance'] or similar could be one way.
-        # For simplicity, let's assume self.app_instance is passed correctly from app.py if needed for CURATED_THEMES
-        # Let's assume self.master_app is correct for now, or we can get it via app_callbacks.
         self.master_app = app_callbacks.get('get_master_app')() # Expect app to provide this callback
         
         self.summary_frame = None # Frame to hold the upcoming assignments list for easy refresh
@@ -162,38 +149,7 @@ class DashboardTab(ttk.Frame):
         
         if self.top_frame: # Ensure top_frame (parent for summary) exists
             self._build_summary_frame(self.top_frame)
-            # print("DashboardTab: Summary frame refreshed.") # Debug print, can be removed
+            # print("DashboardTab: Summary frame refreshed.") # Debug print
         else:
             # This case should ideally not be hit if setup_ui is called before refresh_data
             print("DashboardTab: Refresh skipped, top_frame not ready.")
-
-
-if __name__ == '__main__':
-    # Example usage for testing this tab independently
-    root = tk.Tk()
-    root.title("Dashboard Tab Test")
-
-    # Apply a basic style for testing if Header.TLabel is used
-    s = ttk.Style()
-    s.configure('Header.TLabel', font=('Helvetica', 12, 'bold')) # Simpler header for test
-
-    # Sample data and callbacks for testing
-    # Ensure datetime and timedelta are available for sample_assignments
-    from datetime import datetime, timedelta 
-    sample_assignments = [
-        {'name': 'Math HW Chapter 1', 'class': 'Math', 'due_date': datetime.now(), 'completed': False, 'priority': 'High'},
-        {'name': 'History Reading Ch. 5', 'class': 'History', 'due_date': datetime.now() + timedelta(days=1), 'completed': False, 'priority': 'Medium'},
-        {'name': 'Science Quiz Prep', 'class': 'Science', 'due_date': datetime.now() + timedelta(days=1), 'completed': True, 'priority': 'High'}, # Completed
-        {'name': 'English Essay Draft', 'class': 'English', 'due_date': datetime.now() + timedelta(days=2), 'completed': False, 'priority': 'Medium'},
-    ]
-    # The top-level import of datetime, timedelta is sufficient.
-    # Redundant import in test block can be removed if top-level is guaranteed.
-
-    def get_sample_assignments():
-        return sample_assignments
-
-    app_cbs = {} # No specific callbacks needed for this simple dashboard yet
-    
-    tab = DashboardTab(root, get_sample_assignments, app_cbs)
-    tab.pack(expand=True, fill='both')
-    root.mainloop()

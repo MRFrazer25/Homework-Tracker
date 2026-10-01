@@ -1,11 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
-# from tkcalendar import Calendar # No longer using tkcalendar
 import ttkbootstrap as ttkb # For DateEntry and other ttkbootstrap widgets
 from ttkbootstrap.dialogs import DatePickerDialog # Though DateEntry uses it internally
 from datetime import datetime, date # Ensure date is imported
-
-# # from ...utils.helpers import format_date # If needed for displaying event details # Removed
 
 class CalendarTab(ttk.Frame):
     """
@@ -172,69 +169,3 @@ class CalendarTab(ttk.Frame):
                 background=bs_colors.get('bg'), 
                 foreground=err_fg
             )
-
-# if __name__ == '__main__':
-#     # Example usage for testing this tab independently
-#     # This __main__ block needs to be updated if used, as MockApp and ttkbootstrap aren't fully set up here.
-#     # For instance, ttkbootstrap.Style() would be needed for a ThemedTk equivalent.
-#     root = tk.Tk() # Basic Tk root for simple testing
-#     root.title("Calendar Tab Test")
-#     try:
-#         from ttkbootstrap import Style
-#         Style(theme='litera') # Apply a theme for ttk widgets
-#     except ImportError:
-#         print("ttkbootstrap not found for independent test styling.")
-
-
-#     # Sample assignments data for testing
-#     sample_assignments = [
-#         {'title': 'Math HW', 'class': 'Math', 'priority': 'High', 'due_date': datetime.now().date() + timedelta(days=2), 'completed': False},
-#         {'title': 'History Reading', 'class': 'History', 'priority': 'Medium', 'due_date': datetime.now().date() + timedelta(days=2), 'completed': False},
-#         {'title': 'Science Project', 'class': 'Science', 'priority': 'Low', 'due_date': datetime.now().date() + timedelta(days=5), 'completed': True},
-#         {'title': 'Art Sketch', 'class': 'Art', 'priority': 'DefaultTest', 'due_date': datetime.now().date() + timedelta(days=1), 'completed': False},
-#     ]
-
-#     def get_sample_assignments():
-#         return sample_assignments
-
-#     class MockAppForCalendar: # Simpler mock, focusing on what CalendarTab needs
-#         def __init__(self, tk_root):
-#             self.root = tk_root
-#             self._is_dark = False
-#             if hasattr(tk_root, 'style'): # If using ttkbootstrap.Window
-#                 self._is_dark = "dark" in tk_root.style.theme_use().lower()
-
-#         def is_dark_theme(self):
-#             if hasattr(self.root, 'style'):
-#                  self._is_dark = "dark" in self.root.style.theme_use().lower()
-#             return self._is_dark
-        
-#         def get_master_app(self): 
-#             return self
-
-#     mock_app_instance = MockAppForCalendar(root)
-#     app_cbs = { 
-#         'get_master_app': mock_app_instance.get_master_app
-#     }
-    
-#     tab = CalendarTab(root, get_sample_assignments, app_cbs)
-#     tab.pack(expand=True, fill='both')
-    
-#     # Example: Add a button to toggle theme for testing (if root is a ttkbootstrap.Window)
-#     if hasattr(root, "style"):
-#         def toggle_theme_test():
-#             current_theme = root.style.theme_use()
-#             if "dark" in current_theme or "cyborg" in current_theme : # Example dark themes
-#                 root.style.theme_use("litera")
-#             else:
-#                 root.style.theme_use("cyborg")
-#             # Manually trigger on_theme_changed for the tab after theme switch
-#             if hasattr(tab, 'on_theme_changed') and hasattr(mock_app_instance, 'is_dark_theme'):
-#                 tab.on_theme_changed(mock_app_instance.is_dark_theme())
-#             tab.refresh_data()
-
-
-#         theme_button = ttk.Button(root, text="Toggle Theme (Test)", command=toggle_theme_test)
-#         theme_button.pack(pady=5)
-
-#     root.mainloop()

@@ -39,8 +39,6 @@ class ChatHistoryDialog(tk.Toplevel):
             except (json.JSONDecodeError, IOError) as e:
                 print(f"Error loading chat history: {e}")
                 # Display error inside the dialog if it's already created
-                # This part might be tricky if _setup_ui hasn't run yet.
-                # Consider a more robust error display if needed.
         return sessions
 
     def _setup_ui(self):
@@ -155,27 +153,3 @@ class ChatHistoryDialog(tk.Toplevel):
         self.messages_display.tag_configure("bot_content_hist", foreground=content_fg_hist, font=font_normal)
         
         self._on_session_selected() # Refresh display with new tag colors
-
-if __name__ == '__main__':
-    root = tk.Tk()
-    class MockAppInstance:
-        def __init__(self, root_window):
-            self.root = root_window
-            self.root.style = lambda: None # Placeholder for style object
-            # Simulate ttkbootstrap colors for testing
-            self.root.style.colors = {'inputbg': '#F0F0F0', 'inputfg': '#000000', 'primary': '#007bff', 'info': '#0dcaf0', 'success': '#28a745'} 
-            self.settings = {"theme": "litera"} # Default mock theme
-            self.KNOWN_DARK_THEMES = ['darkly', 'cyborg'] # Mock dark themes
-        def get_current_theme_settings(self): # Not directly used by dialog if it uses bs_colors
-            return {}
-        def is_dark_theme(self): return self.settings.get("theme") in self.KNOWN_DARK_THEMES
-        def open_hist_dialog(self): ChatHistoryDialog(self.root, self)
-    
-    mock_app = MockAppInstance(root)
-    # Create dummy log
-    if not os.path.exists("data"): os.makedirs("data")
-    with open(PERSISTENT_CHAT_LOG_FILE, 'w', encoding='utf-8') as f:
-        json.dump([{"session_id": datetime.now().isoformat(), "timestamp": datetime.now().isoformat(), "user_input": "Test", "bot_response": "Test reply"}], f)
-
-    ttk.Button(root, text="Open History (Test)", command=mock_app.open_hist_dialog).pack(pady=20)
-    root.mainloop() 

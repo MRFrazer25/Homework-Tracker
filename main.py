@@ -10,9 +10,6 @@ def main():
     """Main entry point for the Homework Tracker application"""
     
     settings = load_app_settings()
-    # ttkbootstrap themes are typically lowercase and might not match old ttkthemes names.
-    # Default to a known ttkbootstrap theme like 'litera' (light) or 'darkly' (dark)
-    # We'll refine this once app.py has its new theme list. For now, 'litera' is a safe default.
     initial_theme_name = settings.get("theme", "litera") 
 
     try:
@@ -25,7 +22,7 @@ def main():
         settings["theme"] = "litera" # Update settings if fallback is used.
         save_app_settings(settings) # Save the updated settings with the fallback theme
 
-    root.title("Homework Tracker with AI Assistant")
+    root.title("Homework Tracker with Chatbot Assistant")
     root.geometry("1200x800")
     root.minsize(1000, 600)
     
