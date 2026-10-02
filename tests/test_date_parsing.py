@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from src.utils.date_parsing import parse_date
+from src.utils.date_parsing import find_date_phrases, parse_date
 
 WEDNESDAY = date(2026, 9, 30)
 
@@ -28,9 +28,22 @@ WEDNESDAY = date(2026, 9, 30)
     ("2026-12-25", date(2026, 12, 25)),
     ("10/10", date(2026, 10, 10)),
     ("1/5/27", date(2027, 1, 5)),
+    ("Mon Oct 5", date(2026, 10, 5)),  # The format the assistant itself uses in replies
+    ("Monday, October 5th", date(2026, 10, 5)),
 ])
 def test_parse_date(text, expected):
     assert parse_date(text, today=WEDNESDAY) == expected
+
+
+@pytest.mark.parametrize("message, phrases", [
+    ("push the chem midterm to next friday", ["next friday"]),
+    ("I have a book report due in 2 weeks", ["in 2 weeks"]),
+    ("move the lab to oct 10 and the essay to monday", ["oct 10", "monday"]),
+    ("mark the month-end report as done", []),  # "mon" inside "month" isn't a date
+    ("finish the history essay", []),
+])
+def test_find_date_phrases(message, phrases):
+    assert find_date_phrases(message) == phrases
 
 
 @pytest.mark.parametrize("text", ["", "someday", "feb 30", "2026-13-01", "whenever"])

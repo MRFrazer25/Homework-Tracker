@@ -6,7 +6,7 @@ from langgraph.errors import GraphRecursionError
 
 from src.core.assistant_tools import AssistantTools
 from src.core.local_chat_model import LocalChatModel
-from src.utils.settings_manager import DEFAULT_ASSISTANT_MODEL
+from src.utils.settings_manager import DEFAULT_ASSISTANT_MODEL, DEFAULT_ASSISTANT_REVISION
 
 # Kept constant so the model's KV cache for it can be reused on every request.
 SYSTEM_PROMPT = (
@@ -25,7 +25,8 @@ MAX_AGENT_STEPS = 8
 class Assistant:
     def __init__(self, assignment_manager, study_tips_generator, model_id=DEFAULT_ASSISTANT_MODEL, model=None):
         self.tools = AssistantTools(assignment_manager, study_tips_generator)
-        self.model = model or LocalChatModel(model_id=model_id)
+        revision = DEFAULT_ASSISTANT_REVISION if model_id == DEFAULT_ASSISTANT_MODEL else None
+        self.model = model or LocalChatModel(model_id=model_id, revision=revision)
         self.tool_list = self.tools.build()
         self.agent = create_agent(self.model, tools=self.tool_list, system_prompt=SYSTEM_PROMPT)
         self.history = []

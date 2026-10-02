@@ -52,6 +52,7 @@ class LocalChatModel(BaseChatModel):
     """Runs a Hugging Face causal LM on this machine. Load with load(), then use like any chat model."""
 
     model_id: str
+    revision: Optional[str] = None  # Commit to load; pinning it means an upstream change can't alter the model
     max_new_tokens: int = 200
 
     _tokenizer: Any = PrivateAttr(default=None)
@@ -68,8 +69,10 @@ class LocalChatModel(BaseChatModel):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-        self._model = AutoModelForCausalLM.from_pretrained(self.model_id, dtype=torch.float32).eval()
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_id, revision=self.revision)
+        # safetensors only: pickle-format weights can run code when loaded
+        self._model = AutoModelForCausalLM.from_pretrained(self.model_id, revision=self.revision, dtype=torch.float32,
+                                                           use_safetensors=True).eval()
         return self
 
     @property

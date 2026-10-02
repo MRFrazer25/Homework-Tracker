@@ -9,47 +9,44 @@ from src.utils.helpers import PRIORITY_RANK, ALLOWED_PRIORITIES
 PERSISTENT_CHAT_LOG_FILE = DATA_DIR / "persistent_chat_log.json"
 
 # --- Model Configuration ---
-# For intent detection: Using a smaller NLI model for zero-shot classification
-# Other options: 'valhalla/distilbart-mnli-12-3', 'facebook/bart-large-mnli' (larger)
-INTENT_MODEL_NAME = "cross-encoder/nli-distilroberta-base"
-# For emotion detection:
-EMOTION_MODEL_NAME = "j-hartmann/emotion-english-distilroberta-base"
+# Emotion detection: RoBERTa fine-tuned on Google's GoEmotions dataset (MIT license). Pinned to the tested commit
+# so a changed upstream repo can't alter what the app loads, and loaded from safetensors only (no pickle code).
+EMOTION_MODEL_NAME = "SamLowe/roberta-base-go_emotions"
+EMOTION_MODEL_REVISION = "d75048347613a25d77de8cf6412eaae9fa7b26be"
 
-# Define your application's intents
-# These will be used as candidate labels for the zero-shot classifier
-INTENT_LABELS = [
-    "list assignments",
-    "show assignments",
-    "get study tips",
-    "show priorities",
-    "ask for help",
-    "general greeting",
-    "general farewell",
-    "check schedule",
-    "thank you",
-    "bot status",
-    # "show history" will now be handled by a dialog, not an intent for the bot to respond to directly.
-    # We might keep a simpler "show current session history" if desired, but problem asks for ChatGPT-like history.
-]
+# GoEmotions scores 28 emotions independently; these are the ones that change a reply's tone
+GO_EMOTION_TONES = {
+    "fear": "fear", "nervousness": "fear",
+    "sadness": "sadness", "disappointment": "sadness", "grief": "sadness", "remorse": "sadness",
+    "anger": "anger", "annoyance": "anger",
+    "joy": "joy", "excitement": "joy", "relief": "joy", "pride": "joy",
+}
+# Minimum score before an emotion changes the tone (tuned on homework-style messages: no false alarms)
+EMOTION_MIN_CONFIDENCE = 0.35
+# Stress is the most common feeling in homework talk, but the model often misses the word itself
+STRESS_WORDS = re.compile(r"\b(stress\w*|overwhelm\w*|anxious|anxiety|panic\w*|freak\w* out)\b", re.IGNORECASE)
 
-# Define how emotions should modify responses (simple approach)
+# How each tone changes a reply
 EMOTION_ADJUSTMENTS = {
     "joy": "That's great to hear! ",
     "sadness": "I'm sorry to hear that. ",
     "anger": "I understand you might be frustrated. ",
     "fear": "No need to worry, I'm here to help. ",
-    "surprise": "Oh, really? ",
-    "disgust": "Hmm, I see. ",
     "neutral": ""
 }
 
 # Emotions whose prefix reads naturally in front of an action result ("That's great to hear! Marked ... as done.")
-TOOL_REPLY_EMOTIONS = {"joy", "sadness", "anger", "fear"}
+TOOL_REPLY_EMOTIONS = {"sadness", "anger", "fear"}
 
 # A bare request for help always shows the built-in examples
 HELP_REQUEST = re.compile(r"\s*(help|\?|commands|what can you do)\s*[.!?]*\s*", re.IGNORECASE)
 
-# Keyword regex -> intent fallback used when the intent model isn't available. Checked in order.
+# Pure small talk gets a friendly reply without involving the agent, which could otherwise act on old context
+_SMALL_TALK_PHRASE = (r"(hi|hey|hello|yo|sup|good (morning|afternoon|evening)|how('?s| is) it going|how are (you|u)"
+                      r"|what'?s up|thanks?( you)?|thank u|thx|ty|bye|goodbye|see (you|ya)( later)?|cool|ok(ay)?|nice)")
+SMALL_TALK = re.compile(rf"(\s*{_SMALL_TALK_PHRASE}\s*(there|so much|a lot|man|bro|dude)?[\s!.,?]*)+", re.IGNORECASE)
+
+# Keyword regex -> command, used for fixed commands while the assistant loads or if it's disabled. Checked in order.
 KEYWORD_INTENTS = [
     (r"\btips?\b", "get study tips"),
     (r"\bpriorit", "show priorities"),
@@ -63,9 +60,8 @@ KEYWORD_INTENTS = [
 
 class Chatbot:
     """
-    Two layers: fast Hugging Face classifiers (intent + emotion) that answer fixed commands, and an
-    optional LLM agent (see assistant.py) that understands free-form requests and can change assignments.
-    The agent handles requests once loaded; the classifiers cover the time before that and any failure.
+    An LLM agent (see assistant.py) handles free-form requests and changes assignments. Keyword-matched fixed
+    commands cover the time before it loads and any failure, and an emotion classifier sets the reply's tone.
     """
     def __init__(self, assignment_manager, study_tips_generator, assistant_model=None):
         self.assignment_manager = assignment_manager
@@ -73,7 +69,6 @@ class Chatbot:
         self.session_id = datetime.now().isoformat() # Unique ID for this app session
 
         # Models are loaded in the background by start_loading_models() so the window opens immediately.
-        self.intent_classifier = None
         self.emotion_classifier = None
         self.models_ready = threading.Event()
 
@@ -88,8 +83,8 @@ class Chatbot:
             "get study tips": self._handle_get_study_tips,
             "show priorities": self._handle_show_priorities,
             "check schedule": self._handle_check_schedule,
-            "bot status": lambda _: "I am functioning. My NLU and emotion models are " + \
-                                   ("loaded" if self.intent_classifier and self.emotion_classifier else "not fully loaded") + \
+            "bot status": lambda _: "I'm working. Emotion detection is " + \
+                                   ("loaded" if self.emotion_classifier else "not loaded") + \
                                    f", and the AI assistant is {self.assistant_status}.",
             "thank you": lambda _: "You're welcome!",
             "general greeting": lambda _: "Hello! How can I help you today?",
@@ -116,23 +111,13 @@ class Chatbot:
         print(f"Chatbot: Using device: {'cuda' if device == 0 else 'cpu'}")
 
         try:
-            print(f"Chatbot: Loading intent detection model: {INTENT_MODEL_NAME}...")
-            self.intent_classifier = pipeline(
-                "zero-shot-classification",
-                model=INTENT_MODEL_NAME,
-                device=device
-            )
-            print("Chatbot: Intent detection model loaded.")
-        except Exception as e:
-            print(f"Error loading intent model {INTENT_MODEL_NAME}: {e}")
-            print("Chatbot: Intent detection will be unavailable.")
-
-        try:
             print(f"Chatbot: Loading emotion detection model: {EMOTION_MODEL_NAME}...")
             self.emotion_classifier = pipeline(
                 "text-classification",
                 model=EMOTION_MODEL_NAME,
-                tokenizer=EMOTION_MODEL_NAME, # Explicitly specify tokenizer
+                revision=EMOTION_MODEL_REVISION,
+                model_kwargs={"use_safetensors": True},
+                top_k=None,  # Score every emotion, not just the top one
                 device=device
             )
             print("Chatbot: Emotion detection model loaded.")
@@ -160,31 +145,37 @@ class Chatbot:
             self.assistant_status = "unavailable"
             print(f"Error loading assistant model {self.assistant_model}: {e}")
 
-    def _detect_intent(self, text):
-        if not self.intent_classifier:
-            return "unknown_intent", 0.0
-        try:
-            result = self.intent_classifier(text, INTENT_LABELS, multi_label=False) # multi_label=False if single intent expected
-            return result['labels'][0], result['scores'][0]
-        except Exception as e:
-            print(f"Error during intent detection: {e}")
-            return "unknown_intent", 0.0
-
     def _detect_emotion(self, text):
-        if not self.emotion_classifier:
-            return "neutral"
-        try:
-            results = self.emotion_classifier(text)
-            # The model might return a list of dictionaries if top_k > 1 or no top_k specified
-            # Assuming the first result is the most relevant
-            if isinstance(results, list) and results:
-                 # Map model labels (e.g., 'LABEL_0') to human-readable labels if necessary
-                 # For j-hartmann/emotion-english-distilroberta-base, labels are directly 'sadness', 'joy', etc.
-                return results[0]['label'].lower() # ensure lowercase
-            return "neutral" # fallback
-        except Exception as e:
-            print(f"Error during emotion detection: {e}")
-            return "neutral"
+        """Returns the reply tone for a message: 'joy', 'sadness', 'anger', 'fear', or 'neutral'."""
+        tone = "neutral"
+        if self.emotion_classifier:
+            try:
+                results = self.emotion_classifier(text)
+                if results and isinstance(results[0], list):  # One list of scores per input text
+                    results = results[0]
+                toned = [r for r in results if r['label'] in GO_EMOTION_TONES]
+                best = max(toned, key=lambda r: r.get('score', 1.0), default=None)
+                # Weak readings are often wrong (e.g. "urgent" read as fear), so only act on clear emotions
+                if best and best.get('score', 1.0) >= EMOTION_MIN_CONFIDENCE:
+                    tone = GO_EMOTION_TONES[best['label']]
+            except Exception as e:
+                print(f"Error during emotion detection: {e}")
+        if tone == "neutral" and STRESS_WORDS.search(text):
+            tone = "fear"
+        return tone
+
+    @staticmethod
+    def _small_talk_reply(text):
+        lowered = text.lower()
+        if re.search(r"\b(thanks?|thank u|thx|ty)\b", lowered):
+            return "You're welcome!"
+        if re.search(r"\b(bye|goodbye|see (you|ya))\b", lowered):
+            return "Goodbye! Good luck with your work!"
+        if re.search(r"\b(how('?s| is) it going|how are (you|u)|what'?s up)\b", lowered):
+            return "I'm doing well, thanks for asking! What can I help you with?"
+        if re.search(r"\b(hi|hey|hello|yo|sup|good (morning|afternoon|evening))\b", lowered):
+            return "Hey! How can I help with your assignments today?"
+        return "Got it! Let me know if you need anything."
 
     def _match_keyword_intent(self, text):
         """Simple keyword fallback used while the models load, if they failed to load, or when they're unsure."""
@@ -202,12 +193,19 @@ class Chatbot:
         emotion = self._detect_emotion(user_input)
         response_prefix = EMOTION_ADJUSTMENTS.get(emotion, "")
 
+        if SMALL_TALK.fullmatch(user_input):
+            final_response = self._small_talk_reply(user_input)
+            self._log_interaction_to_persistent_store(user_input, final_response)
+            return final_response, False
+
         if self.assistant and not HELP_REQUEST.fullmatch(user_input):
             try:
                 reply, data_changed = self.assistant.respond(user_input)
                 print(f"Chatbot Debug: Input='{user_input}', Assistant used tools={self.assistant.last_used_tools}, Emotion='{emotion}'")
                 # Tool results are templated text, so the emotion model adds the tone; the LLM's own replies already have it
-                use_prefix = self.assistant.last_used_tools and emotion in TOOL_REPLY_EMOTIONS
+                # "That's great to hear!" only fits finishing something; the other emotions fit any action
+                use_prefix = self.assistant.last_used_tools and (
+                    emotion in TOOL_REPLY_EMOTIONS or (emotion == "joy" and " as done." in reply))
                 final_response = (response_prefix + reply) if use_prefix else reply
                 self._log_interaction_to_persistent_store(user_input, final_response)
                 return final_response, data_changed
@@ -219,28 +217,16 @@ class Chatbot:
             self._log_interaction_to_persistent_store(user_input, final_response)
             return final_response, False
 
-        intent, intent_score = self._detect_intent(user_input)
-        print(f"Chatbot Debug: Input='{user_input}', Detected Intent='{intent}' (Score: {intent_score:.2f}), Emotion='{emotion}'")
-        base_response = ""
-
-        # Confidence threshold for intent
-        CONFIDENCE_THRESHOLD = 0.5 # Lowered slightly for more flexibility with natural language
-        # Used when the model is unavailable or not confident enough
         keyword_intent = self._match_keyword_intent(user_input)
+        print(f"Chatbot Debug: Input='{user_input}', Command='{keyword_intent}', Emotion='{emotion}'")
 
-        if intent_score > CONFIDENCE_THRESHOLD and intent in self.command_handlers:
-            handler = self.command_handlers[intent]
-            # All remaining handlers are called without user_input directly
-            base_response = handler(None)
-        elif keyword_intent:
+        if keyword_intent:
             base_response = self.command_handlers[keyword_intent](None)
         elif "help" in user_input.lower():
             base_response = self._handle_ask_for_help(None)
-        elif not self.models_ready.is_set():
-            base_response = ("I'm still loading my language models (the first run downloads them, which can take a minute). "
+        elif not self.models_ready.is_set() or self.assistant_status in ("waiting to load", "loading"):
+            base_response = ("I'm still loading my language models (the first run downloads them, which can take a few minutes). "
                              "Simple commands like 'list assignments', 'priorities', 'schedule', or 'help' work in the meantime.")
-        elif intent_score > 0.3: # Low confidence but some match
-            base_response = f"I think you might be asking about '{intent}', but I'm not entirely sure. Could you try rephrasing or type 'help'?"
         else:
             base_response = "I'm not sure how to respond to that. Could you try rephrasing, or type 'help' for a list of commands?"
 

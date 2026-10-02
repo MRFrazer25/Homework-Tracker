@@ -33,11 +33,18 @@ Everything runs **locally** on your machine with no API keys or cloud calls; an 
 *   **Agent**: A LangChain `create_agent` agent with tools for adding, completing, rescheduling, and reprioritizing assignments, plus study plans and tips. Tools are `return_direct`, so each request needs only one model call.
 *   **Model**: [IBM Granite 4.0 1B](https://huggingface.co/ibm-granite/granite-4.0-1b) (Apache 2.0) running on CPU. It was chosen by benchmarking ten small open models (from Google, Microsoft, IBM, Alibaba, Liquid AI, and Hugging Face) on tool calling, then putting the finalists through a 20-request scored test of the real agent (typos, vague references, follow-ups, undo, chit-chat, and unsupported requests). Granite was the only model to pass every request. The model can be changed with `assistant_model` in `data/settings.json` (set it to `null` to turn the assistant off).
 *   **Custom LangChain chat model** (`src/core/local_chat_model.py`): LangChain's Hugging Face integration can't run agents on local models (it doesn't pass tools, parse tool calls, or accept tool results), so this class renders tools with the model's own chat template, parses its tool calls, and caches the attention state of the fixed system prompt so each request only processes new text (about 35% faster).
-*   **Reliability guards**: Small models are bad at calendar math, so dates are passed through as spoken ("next monday") and resolved in Python. Assignment names are fuzzy-matched, ambiguous names get a clarifying question, and if the model picks an assignment the user didn't mention while the message names a different one, the user's words win.
+*   **Reliability guards**: A small model sometimes picks the wrong action, assignment, or date, so every change is checked against the user's own words before it runs:
+    *   Dates are passed through as spoken ("next monday") and resolved in Python; if the message contains a date, that date wins.
+    *   A change only runs if the message asks for that kind of change ("rename X" can't turn into "mark X done"), and if the model picks the opposite action ("unmark" vs. "mark done"), the user's words win.
+    *   Assignment names are fuzzy-matched; if the user's words fit several assignments, it asks which one.
+    *   Questions ("is X done?"), bulk requests ("mark everything done"), and unsupported requests (rename, delete) never change data.
+    *   Listings are filtered by what the user asked about ("today", "this week", "overdue", "chem").
+*   **Tested**: Beyond the unit tests, the agent was run against about 90 varied, scored requests with the real model.
 
-**Classic NLU layer (Hugging Face pipelines)**
-*   **Emotion Detection**: `j-hartmann/emotion-english-distilroberta-base` adds an empathetic touch to the agent's replies.
-*   **Intent Detection**: `cross-encoder/nli-distilroberta-base` zero-shot classification answers fixed commands while the LLM loads, if it fails to load, or if it's turned off.
+**Supporting models and fallbacks**
+*   **Emotion Detection**: [`SamLowe/roberta-base-go_emotions`](https://huggingface.co/SamLowe/roberta-base-go_emotions) (MIT, trained on Google's GoEmotions dataset) adds an empathetic touch when a feeling is clearly expressed ("I'm so stressed", "finally finished it!").
+*   **Fixed Commands**: Keyword matching answers simple commands while the LLM loads, or if it's turned off. Small talk ("thanks", "hey how's it going") is answered directly so it can never trigger an action.
+*   **Model Safety**: Models load from `safetensors` files only (pickle weights can run code) and are pinned to the exact commits that were tested.
 *   **Background Loading**: All models load in the background, so the app window opens immediately and the chat stays responsive while the model thinks.
 
 Installation

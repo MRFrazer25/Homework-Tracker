@@ -105,3 +105,53 @@ def test_falls_back_to_classic_replies_if_assistant_errors(bot):
     bot.assistant = FakeAssistant("", fail=True)
     response, changed = bot.get_response("show my priorities")
     assert "Urgent priority" in response and not changed
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("hey how's it going", "doing well"),
+    ("thanks!", "welcome"),
+    ("ok cool", "Got it"),
+    ("bye", "Goodbye"),
+])
+def test_small_talk_never_reaches_the_assistant(bot, message, expected):
+    bot.assistant = FakeAssistant("SHOULD NOT BE USED", fail=True)
+    response, changed = bot.get_response(message)
+    assert expected in response and not changed
+
+
+@pytest.mark.parametrize("message", ["hey can you move my essay to friday", "thanks, now mark hw done"])
+def test_requests_with_small_talk_still_go_to_the_assistant(bot, message):
+    bot.assistant = FakeAssistant("Moved it.")
+    assert bot.get_response(message) == ("Moved it.", True)
+
+
+def test_joy_prefix_only_when_finishing_something(bot):
+    bot.emotion_classifier = lambda text: [{"label": "joy"}]
+    bot.assistant = FakeAssistant("Added 'Book report' (English), due Wed Oct 14, Medium priority.")
+    assert bot.get_response("I have a book report due in 2 weeks")[0].startswith("Added")
+    bot.assistant = FakeAssistant("Marked 'Essay' as done.")
+    assert bot.get_response("I finished my essay!")[0] == "That's great to hear! Marked 'Essay' as done."
+
+
+def test_weak_emotion_readings_are_ignored(bot):
+    bot.assistant = FakeAssistant("Added 'Map quiz' (Geography), due Tue Oct 20, Urgent priority.")
+    bot.emotion_classifier = lambda text: [{"label": "fear", "score": 0.2}]  # "urgent" weakly misread as fear
+    assert bot.get_response("add a map quiz due oct 20, urgent")[0].startswith("Added")
+    bot.emotion_classifier = lambda text: [{"label": "fear", "score": 0.96}]
+    assert bot.get_response("I'm worried, move the quiz to oct 20")[0].startswith("No need to worry")
+
+
+def test_go_emotions_labels_map_to_tones(bot):
+    bot.emotion_classifier = lambda text: [[{"label": "nervousness", "score": 0.6}, {"label": "neutral", "score": 0.3}]]
+    assert bot._detect_emotion("worried about the midterm") == "fear"
+    bot.emotion_classifier = lambda text: [[{"label": "relief", "score": 0.5}]]
+    assert bot._detect_emotion("finally done") == "joy"
+    bot.emotion_classifier = lambda text: [[{"label": "curiosity", "score": 0.9}]]  # Not a tone we use
+    assert bot._detect_emotion("what's due?") == "neutral"
+
+
+def test_stress_words_count_when_the_model_misses_them(bot):
+    bot.emotion_classifier = lambda text: [[{"label": "neutral", "score": 0.9}]]
+    assert bot._detect_emotion("I'm so stressed, any tips?") == "fear"
+    bot.emotion_classifier = None  # Also works before the model loads
+    assert bot._detect_emotion("feeling overwhelmed") == "fear"

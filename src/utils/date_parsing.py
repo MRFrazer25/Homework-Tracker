@@ -17,6 +17,21 @@ _WEEKDAY_PATTERN = "|".join(WEEKDAYS + sorted(WEEKDAY_ALIASES, key=len, reverse=
 _MONTH_PATTERN = "|".join(m[:3] + r"[a-z]*" for m in MONTHS)
 
 
+_DATE_PHRASE = re.compile(
+    rf"\b(?:today|tonight|tomorrow|next week"
+    rf"|in (?:\d+|a|one|two|three) (?:days?|weeks?)"
+    rf"|(?:next |this )?(?:{_WEEKDAY_PATTERN})"
+    rf"|(?:{_MONTH_PATTERN}) \d{{1,2}}(?:st|nd|rd|th)?"
+    rf"|\d{{1,2}}(?:st|nd|rd|th)? (?:of )?(?:{_MONTH_PATTERN})"
+    rf"|\d{{4}}-\d{{1,2}}-\d{{1,2}}|\d{{1,2}}/\d{{1,2}}(?:/\d{{2,4}})?)\b",
+    re.IGNORECASE)
+
+
+def find_date_phrases(text):
+    """Returns the date phrases in a message, e.g. "push it to next friday" -> ["next friday"]."""
+    return [m.group(0) for m in _DATE_PHRASE.finditer(text or "")]
+
+
 def _weekday_index(word):
     word = word.lower()
     if word in WEEKDAYS:
@@ -87,6 +102,11 @@ def parse_date(text, today=None):
         elif match.group(1) and days_ahead == 0:
             days_ahead = 7
         return today + timedelta(days=days_ahead)
+
+    # A weekday in front of a full date ("Mon Oct 5", "Monday, October 5") adds nothing; parse the rest
+    match = re.fullmatch(rf"({_WEEKDAY_PATTERN}) (.+)", s)
+    if match:
+        return parse_date(match.group(2), today)
 
     match = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
     if match:

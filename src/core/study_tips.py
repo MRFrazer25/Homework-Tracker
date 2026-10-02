@@ -223,7 +223,7 @@ class StudyTipsGenerator:
                 schedule.append(
                     f"- {assignment.get('name', 'N/A')} ({assignment.get('class', 'N/A')}):\n"
                     f"  - Priority: {assignment.get('priority', 'N/A')}, Difficulty: {difficulty}/10\n"
-                    f"  - Due in {days_until_due} days. Estimated total: {estimated_hours_total:.1f} hrs.\n"
+                    f"  - Due in {days_until_due} day{'s' if days_until_due != 1 else ''}. Estimated total: {estimated_hours_total:.1f} hrs.\n"
                     f"  - Suggestion: Allocate ~{daily_hours_suggestion:.1f} hours/day."
                 )
             elif days_until_due == 0: # Due today

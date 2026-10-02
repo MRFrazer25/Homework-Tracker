@@ -5,6 +5,8 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 DEFAULT_THEME = "litera" # Must be a ttkbootstrap theme name
 # Hugging Face model for the chat assistant; set "assistant_model" to null in settings.json to disable it
 DEFAULT_ASSISTANT_MODEL = "ibm-granite/granite-4.0-1b"
+# The exact commit of the default model that was tested; other models load their latest version
+DEFAULT_ASSISTANT_REVISION = "6a7381ba1f54d684ff508d991aeb7dc580157103"
 
 def load_app_settings():
     """Loads application settings from a JSON file."""
