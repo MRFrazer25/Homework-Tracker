@@ -19,7 +19,8 @@ Features
     *   **Progress Tracking**: Track the completion status of your assignments.
 
 3.  **Chat Assistant Capabilities**:
-    *   **Natural Language Actions**: "Add a math quiz due Friday, high priority", "I finished the lab report", "push my essay to next Monday", "mark hw #1 done and move the lab to Oct 10". Changes show up in every tab immediately.
+    *   **Natural Language Actions**: "Add a math quiz due Friday, high priority", "I finished the lab report", "push my essay to next Monday", "mark hw #1 done and move the lab to Oct 10", "rename the essay to essay draft", "move the lab to my biology class". Changes show up in every tab immediately.
+    *   **Safe Deletes**: "Delete the art sketches" asks for a "yes" first; anything else cancels.
     *   **Follow-ups**: Remembers the last few exchanges, so "actually make it urgent" works.
     *   **Study Support**: Study plans, workload warnings, and tips.
     *   **Chat History**: Every conversation is saved and can be browsed with the History button.
@@ -30,14 +31,15 @@ Chat Assistant Technology
 Everything runs **locally** on your machine with no API keys or cloud calls; an internet connection is only needed to download the models the first time.
 
 **LLM agent (LangChain + Hugging Face Transformers)**
-*   **Agent**: A LangChain `create_agent` agent with tools for adding, completing, rescheduling, and reprioritizing assignments, plus study plans and tips. Tools are `return_direct`, so each request needs only one model call.
+*   **Agent**: A LangChain `create_agent` agent with tools for adding, completing, rescheduling, reprioritizing, renaming, re-classing, and deleting assignments, plus study plans and tips. Tools are `return_direct`, so each request needs only one model call.
 *   **Model**: [IBM Granite 4.0 1B](https://huggingface.co/ibm-granite/granite-4.0-1b) (Apache 2.0) running on CPU. It was chosen by benchmarking ten small open models (from Google, Microsoft, IBM, Alibaba, Liquid AI, and Hugging Face) on tool calling, then putting the finalists through a 20-request scored test of the real agent (typos, vague references, follow-ups, undo, chit-chat, and unsupported requests). Granite was the only model to pass every request. The model can be changed with `assistant_model` in `data/settings.json` (set it to `null` to turn the assistant off).
 *   **Custom LangChain chat model** (`src/core/local_chat_model.py`): LangChain's Hugging Face integration can't run agents on local models (it doesn't pass tools, parse tool calls, or accept tool results), so this class renders tools with the model's own chat template, parses its tool calls, and caches the attention state of the fixed system prompt so each request only processes new text (about 35% faster).
 *   **Reliability guards**: A small model sometimes picks the wrong action, assignment, or date, so every change is checked against the user's own words before it runs:
     *   Dates are passed through as spoken ("next monday") and resolved in Python; if the message contains a date, that date wins.
     *   A change only runs if the message asks for that kind of change ("rename X" can't turn into "mark X done"), and if the model picks the opposite action ("unmark" vs. "mark done"), the user's words win.
     *   Assignment names are fuzzy-matched; if the user's words fit several assignments, it asks which one.
-    *   Questions ("is X done?"), bulk requests ("mark everything done"), and unsupported requests (rename, delete) never change data.
+    *   Questions ("is X done?") and bulk requests ("mark everything done") never change data.
+    *   Deleting needs a "yes" in the very next message, checked in code rather than by the model; any other reply cancels it.
     *   Listings are filtered by what the user asked about ("today", "this week", "overdue", "chem").
 *   **Tested**: Beyond the unit tests, the agent was run against about 90 varied, scored requests with the real model.
 

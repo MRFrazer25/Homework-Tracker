@@ -84,6 +84,9 @@ class FakeAssistant:
     def __init__(self, reply, used_tools=True, changed=True, fail=False):
         self.reply, self.last_used_tools, self.changed, self.fail = reply, used_tools, changed, fail
 
+    def confirm_pending(self, text):
+        return None
+
     def respond(self, text):
         if self.fail:
             raise RuntimeError("model crashed")
@@ -155,3 +158,22 @@ def test_stress_words_count_when_the_model_misses_them(bot):
     assert bot._detect_emotion("I'm so stressed, any tips?") == "fear"
     bot.emotion_classifier = None  # Also works before the model loads
     assert bot._detect_emotion("feeling overwhelmed") == "fear"
+
+
+def test_small_talk_cancels_a_pending_delete(tmp_path, monkeypatch):
+    from datetime import datetime
+    from src.core.assignment_manager import AssignmentManager
+    from src.core.assistant import Assistant
+    from src.core.data_handler import DataHandler
+    monkeypatch.setattr(chatbot_module, "PERSISTENT_CHAT_LOG_FILE", tmp_path / "log.json")
+    manager = AssignmentManager(DataHandler(data_dir=tmp_path))
+    manager.add_assignment({'name': "Essay", 'class': "English", 'due_date': datetime(2030, 1, 1, 23, 59),
+                            'priority': "Medium", 'difficulty': 5})
+    bot = Chatbot(manager, StudyTipsGenerator())
+    bot.assistant = Assistant(manager, StudyTipsGenerator(), model=FakeAssistant(""))  # Model unused here
+    bot.assistant.tools.user_message = "delete the essay"
+    bot.assistant.tools.build()[8].invoke({"assignment_name": "Essay"})  # delete_assignment
+    assert bot.get_response("thanks")[0] == "You're welcome!"  # Cancels the pending delete...
+    bot.assistant.respond = lambda text: ("(agent reply)", False)
+    bot.get_response("yes")  # ...so a later "yes" deletes nothing
+    assert len(manager.get_assignments()) == 1

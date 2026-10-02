@@ -34,15 +34,25 @@ ACTION_WORDS = {
     "reschedule": re.compile(r"\b(move\w*|push\w*|reschedul\w*|delay\w*|postpone\w*|extend\w*|bump\w*|shift\w*)\b", re.IGNORECASE),
     "priority": re.compile(r"\b(priority|urgent|important|high|low|medium)\b", re.IGNORECASE),
     "add": re.compile(r"\b(add\w*|new|create\w*|have|got|gotta|assigned|due|put|throw|need to|have to|must)\b", re.IGNORECASE),
+    "rename": re.compile(r"\b(renam\w*|call it|change (the |its )?name)\b", re.IGNORECASE),
+    "change_class": re.compile(r"\b(class|subject|course)\b", re.IGNORECASE),
+    "delete": re.compile(r"\b(delet\w*|remov\w*|erase|get rid of|drop|trash)\b", re.IGNORECASE),
 }
+# A specific priority level the user named ("important" alone doesn't say which)
+PRIORITY_WORDS = re.compile(r"\b(urgent|high|medium|low)\b", re.IGNORECASE)
 # Moving words win over adding unless the user explicitly says to add ("push X to friday" is never a new X)
 EXPLICIT_ADD = re.compile(r"\b(add\w*|new|create\w*)\b", re.IGNORECASE)
-CLARIFY = ("I'm not sure what you'd like me to do with '{name}'. I can mark it done or not done, "
-           "change its due date, or change its priority.")
-UNSUPPORTED_WORDS = re.compile(r"\b(renam\w*|delet\w*|remov\w*|erase|get rid of)\b"
-                               r"|\b(chang|set|switch|updat)\w*\b.{0,40}\bclass\b", re.IGNORECASE)
-UNSUPPORTED = ("I can't rename, delete, or change the class of assignments from the chat. You can do that in the "
-               "Assignments tab (double-click an assignment to edit it, or select it and click Delete Selected).")
+# "rename the econ case study to econ project" -> "econ project"; the user's own words beat the model's
+RENAME_TARGET = re.compile(r"\b(?:renam\w*|call)\b.*?\b(?:to|as)\b\s+(.+?)\s*[.!?]*$", re.IGNORECASE)
+# "move the art sketches to the design class" / "change the class of X to design" -> "design"
+CLASS_TARGET = re.compile(r"\bto (?:the |my |a )?(.+?) (?:class|subject|course)\b"
+                          r"|\b(?:class|subject|course)\b.*?\bto\b\s+(.+?)\s*[.!?]*$", re.IGNORECASE)
+CLARIFY = ("I'm not sure what you'd like me to do with '{name}'. I can mark it done or not done, change its due date "
+           "or priority, rename it, change its class, or delete it.")
+# A pending delete only happens on a clear yes in the very next message; anything else cancels it
+CONFIRM_YES = re.compile(r"\s*(yes|yeah|yep|yup|y|sure|confirm|do it|delete it|go ahead)\s*[.!]*\s*(please)?\s*[.!]*\s*",
+                         re.IGNORECASE)
+CONFIRM_NO = re.compile(r"\s*(no|nope|nah|n|cancel|don'?t|stop|never ?mind|wait|keep it)\b.*", re.IGNORECASE)
 
 
 def _format_due(due):
@@ -60,6 +70,8 @@ class AssistantTools:
         self.today_provider = today_provider
         self.data_changed = False
         self.user_message = ""  # The request being handled; used to sanity-check the model's choices
+        self.pending_deletes = []  # Assignments waiting for the user's "yes" before they're deleted
+        self._redirecting = False  # Guards _clarify against redirecting more than once
 
     # --- Helpers ---
     def find_assignment(self, name):
@@ -158,12 +170,28 @@ class AssistantTools:
         return assignments, " ".join(scopes)
 
     def _clarify(self, name):
-        return UNSUPPORTED if UNSUPPORTED_WORDS.search(self.user_message) else CLARIFY.format(name=name)
+        """
+        Called when the model picked a tool the user's message doesn't ask for. If the message clearly asks for
+        exactly one simple change instead ("I finished X" after a run of renames), make that change; otherwise ask.
+        """
+        if not self._redirecting:
+            kinds = [k for k in ("complete", "undo", "reschedule", "priority") if self._asked_for(k)]
+            dates = find_date_phrases(self.user_message)
+            priorities = PRIORITY_WORDS.findall(self.user_message)
+            if len(kinds) == 1 and (kinds[0] != "reschedule" or len(dates) == 1) and (kinds[0] != "priority" or len(priorities) == 1):
+                self._redirecting = True
+                try:
+                    if kinds[0] == "reschedule":
+                        return self._reschedule(name, dates[0])
+                    if kinds[0] == "priority":
+                        return self._set_priority(name, priorities[0])
+                    return self._set_completion(name, kinds[0] == "complete")
+                finally:
+                    self._redirecting = False
+        return CLARIFY.format(name=name)
 
     def _refuse_change(self):
         """A reply refusing any change for this message, or None if changes are allowed."""
-        if UNSUPPORTED_WORDS.search(self.user_message):
-            return UNSUPPORTED
         if QUESTION.match(self.user_message):
             return QUESTION_REPLY
         if BULK_WORDS.search(self.user_message):
@@ -178,6 +206,11 @@ class AssistantTools:
         if action == "undo":
             return bool(UNDO_WORDS.search(said))
         if action in ("reschedule", "add"):
+            # Renaming or deleting is never a move or an add, and "move X to the design class" isn't a new date
+            if ACTION_WORDS["rename"].search(said) or ACTION_WORDS["delete"].search(said):
+                return False
+            if action == "reschedule" and ACTION_WORDS["change_class"].search(said) and not find_date_phrases(said):
+                return False
             # A date in the message is a strong sign of either ("throw a french essay on there for thursday")
             return bool(ACTION_WORDS[action].search(said) or find_date_phrases(said))
         return bool(ACTION_WORDS[action].search(said))
@@ -300,22 +333,7 @@ class AssistantTools:
                 assignment_name: Name of the assignment.
                 new_due_date: The new date exactly as the user said it, e.g. "friday", "next monday", "oct 10".
             """
-            refusal = self._refuse_change()
-            if refusal:
-                return refusal
-            if not self._asked_for("reschedule"):
-                return self._clarify(assignment_name)
-            assignment, error = self.find_assignment(assignment_name)
-            if error:
-                return error
-            due = self._resolve_due(new_due_date)
-            if not due:
-                return f"I couldn't understand the date '{new_due_date}'. Try something like 'friday' or 'oct 10'."
-            ok, message = self.assignment_manager.update_assignment({'id': assignment['id'], 'due_date': due})
-            if not ok:
-                return message
-            self.data_changed = True
-            return f"Moved '{assignment['name']}' to {_format_due(due)}."
+            return self._reschedule(assignment_name, new_due_date)
 
         @tool(return_direct=True, parse_docstring=True)
         def set_priority(assignment_name: str, priority: str) -> str:
@@ -325,22 +343,82 @@ class AssistantTools:
                 assignment_name: Name of the assignment.
                 priority: One of Low, Medium, High, Urgent.
             """
+            return self._set_priority(assignment_name, priority)
+
+        @tool(return_direct=True, parse_docstring=True)
+        def rename_assignment(assignment_name: str, new_name: str) -> str:
+            """Rename an assignment.
+
+            Args:
+                assignment_name: Current name of the assignment.
+                new_name: The new name, exactly as the user said it.
+            """
             refusal = self._refuse_change()
             if refusal:
                 return refusal
-            if not self._asked_for("priority"):
+            if not self._asked_for("rename"):
                 return self._clarify(assignment_name)
             assignment, error = self.find_assignment(assignment_name)
             if error:
                 return error
-            priority = (priority or "").capitalize()
-            if priority not in ALLOWED_PRIORITIES:
-                return f"Priority must be one of: {', '.join(ALLOWED_PRIORITIES)}."
-            ok, message = self.assignment_manager.update_assignment({'id': assignment['id'], 'priority': priority})
+            new_name = self._users_wording(new_name, RENAME_TARGET)
+            if not new_name:
+                return f"What should I rename '{assignment['name']}' to?"
+            existing = self._existing_assignment_named(new_name)
+            if existing and existing is not assignment:
+                return f"You already have an assignment called '{existing['name']}'."
+            old_name = assignment['name']  # The update changes the assignment in place
+            ok, message = self.assignment_manager.update_assignment({'id': assignment['id'], 'name': new_name})
             if not ok:
                 return message
             self.data_changed = True
-            return f"Set '{assignment['name']}' to {priority} priority."
+            return f"Renamed '{old_name}' to '{new_name}'."
+
+        @tool(return_direct=True, parse_docstring=True)
+        def change_class(assignment_name: str, new_class: str) -> str:
+            """Change which class (subject) an assignment belongs to.
+
+            Args:
+                assignment_name: Name of the assignment.
+                new_class: The new class, exactly as the user said it.
+            """
+            refusal = self._refuse_change()
+            if refusal:
+                return refusal
+            if not self._asked_for("change_class"):
+                return self._clarify(assignment_name)
+            assignment, error = self.find_assignment(assignment_name)
+            if error:
+                return error
+            new_class = self._users_wording(new_class, CLASS_TARGET)
+            if not new_class:
+                return f"Which class should '{assignment['name']}' be in?"
+            ok, message = self.assignment_manager.update_assignment({'id': assignment['id'], 'class': new_class})
+            if not ok:
+                return message
+            self.data_changed = True
+            return f"Moved '{assignment['name']}' to the {new_class} class."
+
+        @tool(return_direct=True, parse_docstring=True)
+        def delete_assignment(assignment_name: str) -> str:
+            """Delete an assignment. The user is asked to confirm first.
+
+            Args:
+                assignment_name: Name of the assignment.
+            """
+            refusal = self._refuse_change()
+            if refusal:
+                return refusal
+            if not self._asked_for("delete"):
+                return self._clarify(assignment_name)
+            assignment, error = self.find_assignment(assignment_name)
+            if error:
+                return error
+            # Deleting can't be undone, so it only happens after a "yes" in the next message (see confirm_pending)
+            if assignment['id'] not in [a_id for a_id, _ in self.pending_deletes]:
+                self.pending_deletes.append((assignment['id'], assignment['name']))
+            return (f"Delete '{assignment['name']}' (due {_format_due(assignment.get('due_date'))})? "
+                    "Reply 'yes' to confirm.")
 
         @tool(return_direct=True)
         def get_study_plan() -> str:
@@ -363,8 +441,75 @@ class AssistantTools:
             tips = self.study_tips_generator.get_enhanced_study_tips(active, focus)
             return f"Tips for '{focus['name']}':\n" + "\n".join(f"- {t}" for t in tips[:5])
 
-        return [list_assignments, add_assignment, mark_complete, mark_incomplete,
-                reschedule, set_priority, get_study_plan, get_study_tips]
+        return [list_assignments, add_assignment, mark_complete, mark_incomplete, reschedule, set_priority,
+                rename_assignment, change_class, delete_assignment, get_study_plan, get_study_tips]
+
+    def _users_wording(self, model_value, pattern):
+        """The model's value if the user actually said it, otherwise what the user's message says, if anything."""
+        value = (model_value or "").strip().strip("'\"")
+        if value and value.lower() in self.user_message.lower():
+            return value
+        match = pattern.search(self.user_message)
+        if match:
+            said = next(group for group in match.groups() if group)
+            return said.strip().strip("'\".!?")
+        return value
+
+    def confirm_pending(self, message):
+        """
+        Handles the reply to a pending delete. Any reply clears it: a clear "yes" deletes, a "no" cancels, and
+        anything else cancels silently so the message can be handled normally.
+
+        Returns:
+            tuple | None: (reply, data_changed), or None if there was nothing to confirm or the reply wasn't yes/no.
+        """
+        if not self.pending_deletes:
+            return None
+        pending, self.pending_deletes = self.pending_deletes, []
+        if CONFIRM_YES.fullmatch(message):
+            deleted = [name for a_id, name in pending if self.assignment_manager.delete_assignment(a_id)[0]]
+            if not deleted:
+                return "I couldn't delete that; it may already be gone.", False
+            return "Deleted " + " and ".join(f"'{n}'" for n in deleted) + ".", True
+        if CONFIRM_NO.fullmatch(message):
+            return "Okay, I won't delete it.", False
+        return None
+
+    def _reschedule(self, assignment_name, new_due_date):
+        refusal = self._refuse_change()
+        if refusal:
+            return refusal
+        if not self._asked_for("reschedule"):
+            return self._clarify(assignment_name)
+        assignment, error = self.find_assignment(assignment_name)
+        if error:
+            return error
+        due = self._resolve_due(new_due_date)
+        if not due:
+            return f"I couldn't understand the date '{new_due_date}'. Try something like 'friday' or 'oct 10'."
+        ok, message = self.assignment_manager.update_assignment({'id': assignment['id'], 'due_date': due})
+        if not ok:
+            return message
+        self.data_changed = True
+        return f"Moved '{assignment['name']}' to {_format_due(due)}."
+
+    def _set_priority(self, assignment_name, priority):
+        refusal = self._refuse_change()
+        if refusal:
+            return refusal
+        if not self._asked_for("priority"):
+            return self._clarify(assignment_name)
+        assignment, error = self.find_assignment(assignment_name)
+        if error:
+            return error
+        priority = (priority or "").capitalize()
+        if priority not in ALLOWED_PRIORITIES:
+            return f"Priority must be one of: {', '.join(ALLOWED_PRIORITIES)}."
+        ok, message = self.assignment_manager.update_assignment({'id': assignment['id'], 'priority': priority})
+        if not ok:
+            return message
+        self.data_changed = True
+        return f"Set '{assignment['name']}' to {priority} priority."
 
     def _set_completion(self, assignment_name, completed):
         refusal = self._refuse_change()

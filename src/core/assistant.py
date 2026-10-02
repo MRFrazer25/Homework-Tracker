@@ -13,6 +13,8 @@ SYSTEM_PROMPT = (
     "You are a helpful assistant inside a homework tracker app. "
     "Use the tools to look up or change the user's assignments whenever they ask about them; "
     "never invent assignments or dates. Pass dates exactly as the user said them (e.g. 'friday', 'oct 10'). "
+    "When the user mentions an assignment they have with a due date (e.g. 'I have a book report due in 2 weeks'), "
+    "add it with add_assignment. "
     "If the user just chats, reply briefly and warmly without using tools."
 )
 
@@ -40,6 +42,13 @@ class Assistant:
             self.model.warm_up(SYSTEM_PROMPT, self.tool_list)
         return self
 
+    def confirm_pending(self, user_input):
+        """Resolves a delete waiting for confirmation (handled in code, never by the model). See AssistantTools."""
+        result = self.tools.confirm_pending(user_input)
+        if result:
+            self.last_used_tools = False
+        return result
+
     def _recent_history(self):
         """The last few exchanges, cut at a user message so tool calls stay paired with their results."""
         starts = [i for i, m in enumerate(self.history) if isinstance(m, HumanMessage)]
@@ -54,6 +63,9 @@ class Assistant:
         Returns:
             tuple: (reply_text, data_changed) where data_changed says whether any assignment was modified.
         """
+        confirmation = self.confirm_pending(user_input)
+        if confirmation:
+            return confirmation
         self.tools.data_changed = False
         self.tools.user_message = user_input
         messages = self._recent_history() + [HumanMessage(user_input)]

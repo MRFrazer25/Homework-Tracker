@@ -77,7 +77,7 @@ def test_history_is_sent_back_and_trimmed(manager):
 
 
 @pytest.mark.parametrize("bad_call", [
-    call("delete_assignment", assignment_name="hw #1"),  # A tool that doesn't exist
+    call("archive_assignment", assignment_name="hw #1"),  # A tool that doesn't exist
     call("reschedule", assignment_name="hw #1"),  # Missing a required argument
     call("add_assignment", name="Quiz", class_name="Math", due_date="friday", difficulty="hard"),  # Wrong type
 ])
@@ -100,10 +100,19 @@ def test_partial_success_reports_only_what_worked(manager):
 
 def test_model_stuck_in_a_loop_is_cut_off(manager):
     # Each reply needs its own tool-call id, as real models produce
-    looping = [AIMessage("", tool_calls=[{**call("delete_assignment", assignment_name="hw #1"), "id": f"call_{i}"}])
+    looping = [AIMessage("", tool_calls=[{**call("archive_assignment", assignment_name="hw #1"), "id": f"call_{i}"}])
                for i in range(50)]
     assistant, model = make_assistant(manager, looping)
     reply, changed = assistant.respond("delete hw")
     assert "stuck" in reply
     assert len(model.seen) < 10
     assert assistant.history == []
+
+
+def test_delete_flow_through_the_agent(manager):
+    assistant, model = make_assistant(manager, [AIMessage("", tool_calls=[call("delete_assignment", assignment_name="hw #1")])])
+    reply, changed = assistant.respond("delete hw #1")
+    assert reply.startswith("Delete 'hw #1'") and not changed
+    assert assistant.respond("yes") == ("Deleted 'hw #1'.", True)
+    assert len(model.seen) == 1  # The confirmation never went to the model
+    assert [a['name'] for a in manager.get_assignments()] == ["lab report"]

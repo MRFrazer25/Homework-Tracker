@@ -151,7 +151,7 @@ def test_actions_need_the_user_to_ask_for_them(tools, helper, manager, message, 
     reply = tools[tool].invoke(args)
     assert manager.get_assignments() == before
     assert not helper.data_changed
-    assert "?" in reply or "not sure" in reply or "Assignments tab" in reply
+    assert "?" in reply or "not sure" in reply
 
 
 def test_undo_is_allowed_when_asked(tools, helper, manager):
@@ -184,15 +184,6 @@ def test_add_uses_users_only_date_and_default_priority(tools, helper, manager):
     assert report['priority'] == "Medium"
 
 
-@pytest.mark.parametrize("message", ["rename the essay draft to essay v1", "delete the essay draft"])
-def test_rename_and_delete_point_to_the_assignments_tab(tools, helper, manager, message):
-    helper.user_message = message
-    for tool, args in [("mark_complete", {"assignment_name": "Essay draft"}),
-                       ("add_assignment", {"name": "essay v1", "class_name": "English", "due_date": "friday"})]:
-        assert "Assignments tab" in tools[tool].invoke(args)
-    assert len(manager.get_assignments()) == 4 and not helper.data_changed
-
-
 def test_didnt_finish_counts_as_undo(tools, helper, manager):
     helper.user_message = "I finished the science project"
     tools["mark_complete"].invoke({"assignment_name": "Science project"})
@@ -223,8 +214,8 @@ def test_follow_up_without_names_trusts_the_model(tools, helper, manager):
 def test_changing_class_is_not_a_move(tools, helper, manager):
     # Seen in real use: "change the class of X to Y" moved X to a made-up date
     helper.user_message = "change the class of the essay draft to writing"
-    assert "Assignments tab" in tools["reschedule"].invoke({"assignment_name": "Essay draft", "new_due_date": "monday"})
-    assert not helper.data_changed
+    assert tools["reschedule"].invoke({"assignment_name": "Essay draft", "new_due_date": "monday"}).startswith("I'm not sure")
+    assert by_name(manager, "Essay draft")['due_date'] == datetime(2026, 10, 5, 23, 59) and not helper.data_changed
 
 
 @pytest.mark.parametrize("message, shown, hidden", [
@@ -337,3 +328,114 @@ def test_move_request_never_adds(tools, helper, manager):
     assert len(manager.get_assignments()) == 4
     helper.user_message = "add a new essay and push it to friday"  # Explicit "add" still works
     assert tools["add_assignment"].invoke({"name": "New essay", "class_name": "English", "due_date": "friday"}).startswith("Added")
+
+
+# --- Rename, change class, delete ---
+
+@pytest.mark.parametrize("message, model_new_name, expected", [
+    ("rename the science project to science fair", "Science fair", "Science fair"),  # Same words: keep the capitalization
+    ("rename the science project to science fair", "Science Fair Project", "science fair"),  # User's words win
+    ("rename hw #1 as Problem Set 1", "Problem Set 1", "Problem Set 1"),
+])
+def test_rename(tools, helper, manager, message, model_new_name, expected):
+    helper.user_message = message
+    assignment = "hw #1" if "hw" in message else "Science project"
+    reply = tools["rename_assignment"].invoke({"assignment_name": assignment, "new_name": model_new_name})
+    assert reply == f"Renamed '{assignment}' to '{expected}'."
+    assert any(a['name'] == expected for a in manager.get_assignments())
+
+
+def test_rename_to_an_existing_name_is_refused(tools, helper, manager):
+    helper.user_message = "rename the essay draft to essay final"
+    assert "already have" in tools["rename_assignment"].invoke({"assignment_name": "Essay draft", "new_name": "Essay final"})
+    assert len([a for a in manager.get_assignments() if a['name'] == "Essay final"]) == 1
+
+
+@pytest.mark.parametrize("message", ["move the science project to the physics class",
+                                     "change the class of the science project to physics",
+                                     "put the science project under my physics course"])
+def test_change_class(tools, helper, manager, message):
+    helper.user_message = message
+    reply = tools["change_class"].invoke({"assignment_name": "Science project", "new_class": "physics"})
+    assert reply == "Moved 'Science project' to the physics class."
+    assert by_name(manager, "Science project")['class'] == "physics"
+    assert by_name(manager, "Science project")['due_date'] == datetime(2026, 10, 2, 23, 59)  # Date untouched
+
+
+def test_delete_needs_a_yes(tools, helper, manager):
+    helper.user_message = "delete the science project"
+    reply = tools["delete_assignment"].invoke({"assignment_name": "Science project"})
+    assert reply == "Delete 'Science project' (due Fri Oct 2)? Reply 'yes' to confirm."
+    assert len(manager.get_assignments()) == 4 and not helper.data_changed  # Nothing deleted yet
+    assert helper.confirm_pending("yes") == ("Deleted 'Science project'.", True)
+    assert [a['name'] for a in manager.get_assignments()] == ["hw #1", "Essay draft", "Essay final"]
+    assert helper.confirm_pending("yes") is None  # Nothing pending anymore
+
+
+@pytest.mark.parametrize("reply, expected", [
+    ("no", ("Okay, I won't delete it.", False)),
+    ("nah keep it", ("Okay, I won't delete it.", False)),
+    ("what do I have left?", None),  # Anything else cancels silently and is handled normally
+    ("ok", None),  # Not a clear yes
+])
+def test_anything_but_yes_cancels_delete(tools, helper, manager, reply, expected):
+    helper.user_message = "delete the science project"
+    tools["delete_assignment"].invoke({"assignment_name": "Science project"})
+    assert helper.confirm_pending(reply) == expected
+    assert helper.confirm_pending("yes") is None  # A later "yes" can't revive it
+    assert len(manager.get_assignments()) == 4
+
+
+def test_two_deletes_confirmed_together(tools, helper, manager):
+    helper.user_message = "delete the science project and hw #1"
+    tools["delete_assignment"].invoke({"assignment_name": "Science project"})
+    tools["delete_assignment"].invoke({"assignment_name": "hw #1"})
+    assert helper.confirm_pending("yes please") == ("Deleted 'Science project' and 'hw #1'.", True)
+    assert len(manager.get_assignments()) == 2
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("tell me about the science project", "not sure"),  # No delete words: the model can't start a delete
+    ("delete everything", "one or two at a time"),
+    ("did I delete the science project?", "asking"),
+    ("delete the essay", "more than one"),  # Ambiguous: asks which
+])
+def test_delete_guards(tools, helper, manager, message, expected):
+    helper.user_message = message
+    assert expected in tools["delete_assignment"].invoke({"assignment_name": "Essay draft" if "essay" in message else "Science project"})
+    assert helper.pending_deletes == [] and helper.confirm_pending("yes") is None
+    assert len(manager.get_assignments()) == 4
+
+
+@pytest.mark.parametrize("message, wrong_tool, args", [
+    ("rename the science project to science fair", "add_assignment", {"name": "Science fair", "class_name": "Science", "due_date": "friday"}),
+    ("delete the science project", "reschedule", {"assignment_name": "Science project", "new_due_date": "friday"}),
+    ("move the science project to the physics class", "reschedule", {"assignment_name": "Science project", "new_due_date": "friday"}),
+])
+def test_new_actions_cant_be_mistaken_for_others(tools, helper, manager, message, wrong_tool, args):
+    before = [dict(a) for a in manager.get_assignments()]
+    helper.user_message = message
+    tools[wrong_tool].invoke(args)
+    assert manager.get_assignments() == before
+
+
+@pytest.mark.parametrize("message, wrong_tool, check", [
+    # Seen in real use: after several renames, "I finished X" went to the rename tool
+    ("I finished the science project", "rename_assignment", lambda a: a['completed'] is True),
+    ("I finished the science project", "delete_assignment", lambda a: a['completed'] is True),
+    ("push the science project to oct 20", "mark_complete", lambda a: a['due_date'] == datetime(2026, 10, 20, 23, 59)),
+    ("make the science project urgent", "change_class", lambda a: a['priority'] == "Urgent"),
+])
+def test_wrong_tool_redirects_to_the_one_clear_request(tools, helper, manager, message, wrong_tool, check):
+    helper.user_message = message
+    args = {"assignment_name": "Science project"}
+    args |= {"rename_assignment": {"new_name": "x"}, "change_class": {"new_class": "x"}}.get(wrong_tool, {})
+    tools[wrong_tool].invoke(args)
+    assert check(by_name(manager, "Science project"))
+    assert helper.pending_deletes == []
+
+
+def test_no_redirect_when_the_request_is_unclear(tools, helper, manager):
+    helper.user_message = "finished the science project, push it to friday"  # Two requests: don't guess
+    reply = tools["rename_assignment"].invoke({"assignment_name": "Science project", "new_name": "x"})
+    assert reply.startswith("I'm not sure") and not helper.data_changed

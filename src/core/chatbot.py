@@ -193,6 +193,13 @@ class Chatbot:
         emotion = self._detect_emotion(user_input)
         response_prefix = EMOTION_ADJUSTMENTS.get(emotion, "")
 
+        # A pending delete is answered (or cancelled) by whatever comes next, before anything else runs
+        if self.assistant:
+            confirmation = self.assistant.confirm_pending(user_input)
+            if confirmation:
+                self._log_interaction_to_persistent_store(user_input, confirmation[0])
+                return confirmation
+
         if SMALL_TALK.fullmatch(user_input):
             final_response = self._small_talk_reply(user_input)
             self._log_interaction_to_persistent_store(user_input, final_response)
@@ -355,7 +362,10 @@ class Chatbot:
                     "- \"Add a math quiz due Friday, high priority\"\n"
                     "- \"I finished the lab report\"\n"
                     "- \"Push my essay to next Monday\"\n"
-                    "- \"What do I still have to do?\" or \"Make me a study plan\"\n"
+                    "- \"What's due this week?\" or \"Anything for chemistry?\"\n"
+                    "- \"Rename the essay to essay draft\" or \"Move the lab to my biology class\"\n"
+                    "- \"Delete the art sketches\" (I'll ask you to confirm first)\n"
+                    "- \"Make me a study plan\"\n"
                     "(The 'History' button shows past conversations.)")
         help_text = (
             "I can help you with the following:\n"
