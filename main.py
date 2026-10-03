@@ -8,7 +8,7 @@ from src.utils.settings_manager import load_app_settings, save_app_settings
 
 def main():
     """Main entry point for the Homework Tracker application"""
-    # Windows consoles can't print every character (e.g. from chat input); don't let a debug print crash the app.
+    # Windows consoles can't print every character (e.g. in assignment names); don't let a warning print crash the app.
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")
 

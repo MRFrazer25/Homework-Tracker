@@ -107,11 +107,58 @@ def test_midnight_due_dates_are_migrated_to_end_of_day(tmp_path):
     assert loaded[1]['due_date'] == datetime(2030, 5, 1, 14, 30)
 
 
-def test_corrupted_file_is_backed_up(tmp_path):
-    (tmp_path / 'assignments.json').write_text("{not json")
+@pytest.mark.parametrize("contents", [
+    b"{not json",
+    b'{"id": 1, "name": "Essay"}',  # Valid JSON, wrong shape
+    b'["Essay", "Lab"]',
+    '[{"id": 1, "name": "Caf\u00e9 essay"}]'.encode('latin-1'),  # Not UTF-8
+])
+def test_unusable_file_is_backed_up_and_never_overwritten(tmp_path, contents):
+    assignments_file = tmp_path / 'assignments.json'
+    assignments_file.write_bytes(contents)
     handler = DataHandler(data_dir=tmp_path)
-    assert handler.load_assignments() == []
-    assert any(p.name.startswith('assignments.json.corrupted') for p in tmp_path.iterdir())
+    manager = AssignmentManager(handler)
+    assert manager.get_assignments() == [] and handler.load_error
+
+    ok, message = manager.add_assignment(make_assignment())
+    assert not ok and message.startswith("Error")
+    assert assignments_file.read_bytes() == contents
+    backups = [p for p in tmp_path.iterdir() if p.name.startswith('assignments.json.corrupted')]
+    assert [p.read_bytes() for p in backups] == [contents]
+
+
+def test_locked_file_is_never_overwritten(tmp_path, monkeypatch):
+    import src.core.data_handler as data_handler_module
+    assignments_file = tmp_path / 'assignments.json'
+    assignments_file.write_text(json.dumps([{'id': 1, 'name': "Essay"}]))
+    handler = DataHandler(data_dir=tmp_path)
+
+    def locked(*args, **kwargs):
+        raise PermissionError("The process cannot access the file because it is being used by another process")
+    monkeypatch.setattr(data_handler_module, "open", locked, raising=False)
+    manager = AssignmentManager(handler)
+    monkeypatch.undo()
+
+    assert "being used by another process" in handler.load_error
+    assert not manager.add_assignment(make_assignment())[0]
+    assert json.loads(assignments_file.read_text()) == [{'id': 1, 'name': "Essay"}]
+
+
+def test_update_validates_every_field_before_changing_any(manager, data_handler):
+    _, assignment_id = manager.add_assignment(make_assignment())
+    ok, _ = manager.update_assignment({'id': assignment_id, 'name': "Renamed", 'difficulty': 11})
+    assert not ok
+    assert manager.get_assignment_by_id(assignment_id)['name'] == "Essay"
+    assert data_handler.load_assignments()[0]['name'] == "Essay"
+
+
+def test_failed_update_save_leaves_record_unchanged(manager, data_handler, monkeypatch):
+    _, assignment_id = manager.add_assignment(make_assignment())
+    monkeypatch.setattr(data_handler, "save_assignments", lambda assignments: False)
+    ok, message = manager.update_assignment({'id': assignment_id, 'name': "Renamed", 'difficulty': 2})
+    assert not ok and "Failed to save" in message
+    assignment = manager.get_assignment_by_id(assignment_id)
+    assert assignment['name'] == "Essay" and assignment['difficulty'] == 6
 
 
 def test_save_leaves_no_temp_file(data_handler, tmp_path):

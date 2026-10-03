@@ -44,6 +44,8 @@ class HomeworkTrackerApp:
         self.settings = settings
         self.data_handler = DataHandler()
         self.assignment_manager = AssignmentManager(self.data_handler)
+        if self.data_handler.load_error:
+            messagebox.showerror("Assignments Not Loaded", self.data_handler.load_error, parent=self.root)
         self.study_tips_generator = StudyTipsGenerator()
 
         self.CURATED_THEMES = CURATED_THEMES_LIST

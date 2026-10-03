@@ -4,6 +4,7 @@ import threading
 from datetime import datetime
 from src.utils.paths import DATA_DIR
 from src.utils.helpers import PRIORITY_RANK, ALLOWED_PRIORITIES
+from src.utils.json_files import back_up_file, write_json_atomic
 
 # Define the path for the persistent chat log (read by the chat history dialog)
 PERSISTENT_CHAT_LOG_FILE = DATA_DIR / "persistent_chat_log.json"
@@ -208,7 +209,6 @@ class Chatbot:
         if self.assistant and not HELP_REQUEST.fullmatch(user_input):
             try:
                 reply, data_changed = self.assistant.respond(user_input)
-                print(f"Chatbot Debug: Input='{user_input}', Assistant used tools={self.assistant.last_used_tools}, Emotion='{emotion}'")
                 # Tool results are templated text, so the emotion model adds the tone; the LLM's own replies already have it
                 # "That's great to hear!" only fits finishing something; the other emotions fit any action
                 use_prefix = self.assistant.last_used_tools and (
@@ -225,7 +225,6 @@ class Chatbot:
             return final_response, False
 
         keyword_intent = self._match_keyword_intent(user_input)
-        print(f"Chatbot Debug: Input='{user_input}', Command='{keyword_intent}', Emotion='{emotion}'")
 
         if keyword_intent:
             base_response = self.command_handlers[keyword_intent](None)
@@ -259,18 +258,18 @@ class Chatbot:
             PERSISTENT_CHAT_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
             if PERSISTENT_CHAT_LOG_FILE.exists() and PERSISTENT_CHAT_LOG_FILE.stat().st_size > 0:
-                with open(PERSISTENT_CHAT_LOG_FILE, 'r', encoding='utf-8') as f:
-                    try:
+                try:
+                    with open(PERSISTENT_CHAT_LOG_FILE, 'r', encoding='utf-8') as f:
                         log_data = json.load(f)
-                        if not isinstance(log_data, list):
-                            log_data = [] # Start fresh if format is incorrect
-                    except json.JSONDecodeError:
-                        log_data = [] # Start fresh if file is corrupted
+                    if not isinstance(log_data, list):
+                        raise ValueError("the chat log is not a list of messages")
+                except ValueError as e:  # Bad JSON, bad encoding, or wrong shape
+                    backup_path = back_up_file(PERSISTENT_CHAT_LOG_FILE)
+                    print(f"Chat log could not be read ({e}); backed it up to {backup_path} and started a new one.")
+                    log_data = []
             
             log_data.append(log_entry)
-            
-            with open(PERSISTENT_CHAT_LOG_FILE, 'w', encoding='utf-8') as f:
-                json.dump(log_data, f, indent=4)
+            write_json_atomic(PERSISTENT_CHAT_LOG_FILE, log_data, indent=4)
                 
         except Exception as e:
             print(f"Error logging to persistent chat store: {e}")

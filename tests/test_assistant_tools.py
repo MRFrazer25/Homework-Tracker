@@ -75,6 +75,37 @@ def test_ambiguous_name_asks_which(tools, manager, helper):
     assert not any(a['completed'] for a in manager.get_assignments())
 
 
+@pytest.fixture
+def two_lab_reports(manager):
+    for day in (3, 12):
+        manager.add_assignment({'name': "Lab report", 'class': "Chemistry", 'due_date': datetime(2026, 10, day, 23, 59),
+                                'priority': "Medium", 'difficulty': 5})
+    return [a for a in manager.get_assignments() if a['name'] == "Lab report"]
+
+
+@pytest.mark.parametrize("message, tool, args", [
+    ("I finished the lab report", "mark_complete", {"assignment_name": "Lab report"}),
+    ("push the lab report to friday", "reschedule", {"assignment_name": "lab report", "new_due_date": "friday"}),
+    ("push the lab report to friday", "reschedule", {"assignment_name": "hw #1", "new_due_date": "friday"}),  # Wrong model pick
+    ("rename the lab report to lab writeup", "rename_assignment", {"assignment_name": "Lab report", "new_name": "Lab writeup"}),
+    ("move the lab report to the biology class", "change_class", {"assignment_name": "Lab report", "new_class": "biology"}),
+    ("make it urgent", "set_priority", {"assignment_name": "Lab reports", "priority": "Urgent"}),  # Partial match
+    ("make it urgent", "set_priority", {"assignment_name": "lab reprot", "priority": "Urgent"}),  # Fuzzy match
+])
+def test_same_named_assignments_ask_which(tools, helper, manager, two_lab_reports, message, tool, args):
+    before = [dict(a) for a in manager.get_assignments()]
+    helper.user_message = message
+    reply = tools[tool].invoke(args)
+    assert "more than one" in reply and "due Sat Oct 3" in reply and "due Mon Oct 12" in reply
+    assert manager.get_assignments() == before and not helper.data_changed
+
+
+def test_rename_to_a_shared_name_is_refused(tools, helper, manager, two_lab_reports):
+    helper.user_message = "rename hw #1 to lab report"
+    assert "already have" in tools["rename_assignment"].invoke({"assignment_name": "hw #1", "new_name": "Lab report"})
+    assert by_name(manager, "hw #1")
+
+
 def test_user_words_override_wrong_model_choice(tools, helper, manager):
     # Seen in real use: after adding "Chem Lab", the model marked it done when the user named another assignment
     helper.user_message = "I finished the science project"

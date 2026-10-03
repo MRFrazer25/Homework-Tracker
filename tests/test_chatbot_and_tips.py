@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -158,6 +159,36 @@ def test_stress_words_count_when_the_model_misses_them(bot):
     assert bot._detect_emotion("I'm so stressed, any tips?") == "fear"
     bot.emotion_classifier = None  # Also works before the model loads
     assert bot._detect_emotion("feeling overwhelmed") == "fear"
+
+
+def test_corrupt_chat_log_is_backed_up_not_wiped(bot, tmp_path):
+    log_file = tmp_path / "log.json"
+    log_file.write_text('[{"user_input": "old message", "bot_')  # Cut short mid-write
+    bot.get_response("list my assignments")
+    backups = [p for p in tmp_path.iterdir() if p.name.startswith("log.json.corrupted")]
+    assert [p.read_text() for p in backups] == ['[{"user_input": "old message", "bot_']
+    assert [e["user_input"] for e in json.loads(log_file.read_text())] == ["list my assignments"]
+
+
+def test_failed_chat_log_write_keeps_the_old_log(bot, tmp_path, monkeypatch):
+    import src.utils.json_files as json_files
+    bot.get_response("list my assignments")
+    log_file = tmp_path / "log.json"
+    before = log_file.read_text()
+
+    def crash(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(json_files.json, "dump", crash)
+    bot.get_response("show my priorities")
+    assert log_file.read_text() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["log.json"]  # No temp file left behind
+
+
+def test_chat_messages_are_not_printed(bot, capsys):
+    bot.get_response("my secret note: list assignments")
+    bot.assistant = FakeAssistant("Moved it.")
+    bot.get_response("my secret note: move the essay")
+    assert "secret note" not in capsys.readouterr().out
 
 
 def test_small_talk_cancels_a_pending_delete(tmp_path, monkeypatch):

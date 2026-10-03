@@ -114,38 +114,39 @@ class AssignmentManager:
         if not assignment_to_update:
             return False, f"Error: Assignment with ID '{assignment_id}' not found."
 
-        # Update fields present in updated_data
+        # Validate every field before changing anything, so a bad field can't leave the edit half-applied
+        changes = {}
         for key, value in updated_data.items():
             if key == 'id': # Do not update ID
                 continue
             if key == 'details': # Ignore details if present in data from older versions
                 continue
             if key == 'due_date':
-                if isinstance(value, datetime):
-                    assignment_to_update[key] = value
-                elif isinstance(value, str): # Attempt to parse if string
+                if isinstance(value, str): # Attempt to parse if string
                     try:
-                        assignment_to_update[key] = datetime.strptime(value, '%Y-%m-%d %H:%M:%S') # Or common format
+                        value = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
                     except ValueError:
                         return False, f"Error: Invalid date format for due_date: {value}."
-                else:
+                elif not isinstance(value, datetime):
                     return False, f"Error: Invalid type for due_date: {type(value)}."
             elif key == 'difficulty':
                 try:
-                    difficulty_val = int(value)
-                    if not (1 <= difficulty_val <= 10):
-                        return False, "Error: Difficulty must be between 1 and 10."
-                    assignment_to_update[key] = difficulty_val
-                except ValueError:
+                    value = int(value)
+                except (TypeError, ValueError):
                     return False, "Error: Invalid difficulty value."
-            elif key in assignment_to_update: # Ensure key is valid for assignment model
-                assignment_to_update[key] = value
-        
-        if self.data_handler.save_assignments(self.assignments):
-            return True, "Assignment updated successfully."
-        else:
-            # Note: If save fails, in-memory change is still there. A more robust system might reload.
+                if not (1 <= value <= 10):
+                    return False, "Error: Difficulty must be between 1 and 10."
+            elif key not in assignment_to_update: # Ensure key is valid for assignment model
+                continue
+            changes[key] = value
+
+        # Save a copy with the changes; the live record only changes once that save succeeds
+        updated = {**assignment_to_update, **changes}
+        if not self.data_handler.save_assignments(
+                [updated if a is assignment_to_update else a for a in self.assignments]):
             return False, "Error: Failed to save assignments after update."
+        assignment_to_update.update(updated)
+        return True, "Assignment updated successfully."
 
     @_synchronized
     def delete_assignment(self, assignment_id):

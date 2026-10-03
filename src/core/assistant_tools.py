@@ -61,6 +61,13 @@ def _format_due(due):
     return due.strftime("%a %b %d").replace(" 0", " ")
 
 
+def _options(assignments):
+    """Lists assignments for a "which one?" question; ones sharing a name are told apart by due date."""
+    names = [(a.get('name') or "").lower() for a in assignments]
+    return ", ".join(f"'{a['name']}' due {_format_due(a.get('due_date'))}" if names.count(n) > 1 else f"'{a['name']}'"
+                     for a, n in zip(assignments, names))
+
+
 class AssistantTools:
     """Builds the tool list for the agent and records whether any tool changed data."""
 
@@ -83,8 +90,7 @@ class AssistantTools:
         # ("the history essay" when there's a draft and a final), so check against what was actually said.
         others = self._also_fits_user_words(assignment)
         if others:
-            options = ", ".join(f"'{a['name']}'" for a in [assignment] + others)
-            return None, f"That could be more than one assignment ({options}). Which one did you mean?"
+            return None, f"That could be more than one assignment ({_options([assignment] + others)}). Which one did you mean?"
         return assignment, None
 
     def _also_fits_user_words(self, chosen):
@@ -103,28 +109,31 @@ class AssistantTools:
         if not assignments:
             return None, "You don't have any assignments yet."
         query = (name or "").strip().lower()
-        names = {a.get('name', ''): a for a in assignments}
+        # Names aren't unique (the Assignments tab allows duplicates), so every match is kept
+        name_of = lambda a: (a.get('name') or "").lower()
+
+        def only_match(matches):
+            if len(matches) == 1:
+                return matches[0], None
+            return None, f"'{name}' matches more than one assignment ({_options(matches)}). Which one did you mean?"
 
         # Small models sometimes pick an assignment from earlier in the conversation instead of the one
         # the user just named. If the message names exactly one assignment and the model chose something
         # the user didn't say, trust the user's words.
         said = self.user_message.lower()
-        mentioned = [a for n, a in names.items() if n and re.search(rf"(?<!\w){re.escape(n.lower())}(?!\w)", said)]
-        if len(mentioned) == 1 and query not in said:
-            return mentioned[0], None
+        mentioned = [a for a in assignments if name_of(a) and re.search(rf"(?<!\w){re.escape(name_of(a))}(?!\w)", said)]
+        if len({name_of(a) for a in mentioned}) == 1 and query not in said:
+            return only_match(mentioned)
 
-        exact = [a for n, a in names.items() if n.lower() == query]
-        if len(exact) == 1:
-            return exact[0], None
-        partial = [a for n, a in names.items() if query and (query in n.lower() or n.lower() in query)]
-        if len(partial) == 1:
-            return partial[0], None
-        if len(partial) > 1:
-            options = ", ".join(f"'{a['name']}'" for a in partial)
-            return None, f"'{name}' matches more than one assignment ({options}). Which one did you mean?"
-        close = difflib.get_close_matches(query, [n.lower() for n in names], n=1, cutoff=0.6)
+        exact = [a for a in assignments if name_of(a) == query]
+        if exact:
+            return only_match(exact)
+        partial = [a for a in assignments if query and name_of(a) and (query in name_of(a) or name_of(a) in query)]
+        if partial:
+            return only_match(partial)
+        close = difflib.get_close_matches(query, sorted({name_of(a) for a in assignments}), n=1, cutoff=0.6)
         if close:
-            return next(a for n, a in names.items() if n.lower() == close[0]), None
+            return only_match([a for a in assignments if name_of(a) == close[0]])
 
         # Last resort: shared keywords with the name or class ("the spanish one" -> "Spanish vocab quiz")
         keywords = set(re.findall(r"\w+", query)) - GENERIC_WORDS
@@ -133,8 +142,7 @@ class AssistantTools:
         if len(by_keyword) == 1:
             return by_keyword[0], None
         if len(by_keyword) > 1:
-            options = ", ".join(f"'{a['name']}'" for a in by_keyword)
-            return None, f"'{name}' could be more than one assignment ({options}). Which one did you mean?"
+            return None, f"'{name}' could be more than one assignment ({_options(by_keyword)}). Which one did you mean?"
         return None, f"I couldn't find an assignment called '{name}'."
 
     def _filter_by_user_words(self, assignments):
@@ -215,14 +223,13 @@ class AssistantTools:
             return bool(ACTION_WORDS[action].search(said) or find_date_phrases(said))
         return bool(ACTION_WORDS[action].search(said))
 
-    def _existing_assignment_named(self, name):
-        """An existing assignment with (nearly) this name, so adding it again would create a duplicate."""
+    def _existing_assignments_named(self, name):
+        """Existing assignments with (nearly) this name, so adding or renaming to it would create a duplicate."""
         query = (name or "").strip().lower()
-        names = {(a.get('name') or "").lower(): a for a in self.assignment_manager.get_assignments()}
-        if query in names:
-            return names[query]
-        close = difflib.get_close_matches(query, list(names), n=1, cutoff=0.85)
-        return names[close[0]] if close else None
+        assignments = self.assignment_manager.get_assignments()
+        names = sorted({(a.get('name') or "").lower() for a in assignments})
+        close = [query] if query in names else difflib.get_close_matches(query, names, n=1, cutoff=0.85)
+        return [a for a in assignments if close and (a.get('name') or "").lower() == close[0]]
 
     def _resolve_due(self, text):
         """
@@ -288,10 +295,10 @@ class AssistantTools:
             if ACTION_WORDS["reschedule"].search(self.user_message) and not EXPLICIT_ADD.search(self.user_message):
                 return ("Did you want to move an existing assignment? Try something like 'move the essay to friday', "
                         "or say 'add' if it's a new one.")
-            existing = self._existing_assignment_named(name)
+            existing = self._existing_assignments_named(name)
             if existing:
-                return (f"You already have '{existing['name']}' (due {_format_due(existing.get('due_date'))}). "
-                        f"Did you want to move it instead? Try 'move {existing['name']} to friday'.")
+                return (f"You already have '{existing[0]['name']}' (due {_format_due(existing[0].get('due_date'))}). "
+                        f"Did you want to move it instead? Try 'move {existing[0]['name']} to friday'.")
             if not ACTION_WORDS["priority"].search(self.user_message):
                 priority = "Medium"  # The model sometimes invents a priority the user never mentioned
             due = self._resolve_due(due_date)
@@ -364,9 +371,9 @@ class AssistantTools:
             new_name = self._users_wording(new_name, RENAME_TARGET)
             if not new_name:
                 return f"What should I rename '{assignment['name']}' to?"
-            existing = self._existing_assignment_named(new_name)
-            if existing and existing is not assignment:
-                return f"You already have an assignment called '{existing['name']}'."
+            existing = [a for a in self._existing_assignments_named(new_name) if a is not assignment]
+            if existing:
+                return f"You already have an assignment called '{existing[0]['name']}'."
             old_name = assignment['name']  # The update changes the assignment in place
             ok, message = self.assignment_manager.update_assignment({'id': assignment['id'], 'name': new_name})
             if not ok:

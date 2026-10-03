@@ -37,7 +37,7 @@ Everything runs **locally** on your machine with no API keys or cloud calls; an 
 *   **Reliability guards**: A small model sometimes picks the wrong action, assignment, or date, so every change is checked against the user's own words before it runs:
     *   Dates are passed through as spoken ("next monday") and resolved in Python; if the message contains a date, that date wins.
     *   A change only runs if the message asks for that kind of change ("rename X" can't turn into "mark X done"), and if the model picks the opposite action ("unmark" vs. "mark done"), the user's words win.
-    *   Assignment names are fuzzy-matched; if the user's words fit several assignments, it asks which one.
+    *   Assignment names are fuzzy-matched; if the user's words fit several assignments, or several assignments share the same name, it asks which one instead of guessing.
     *   Questions ("is X done?") and bulk requests ("mark everything done") never change data.
     *   Deleting needs a "yes" in the very next message, checked in code rather than by the model; any other reply cancels it.
     *   Listings are filtered by what the user asked about ("today", "this week", "overdue", "chem").
@@ -85,7 +85,10 @@ python -m pytest
 
 Data Storage
 ------------
-*   User data such as assignments, settings, and chat history are stored locally in the `data/` directory (e.g., `assignments.json`, `settings.json`).
+*   User data such as assignments, settings, and chat history are stored locally in the `data/` directory (e.g., `assignments.json`, `settings.json`, `persistent_chat_log.json`).
+*   Assignments and chat history are written to a temporary file and then swapped in, so a crash or power loss mid-save can't leave a half-written file.
+*   If `assignments.json` exists but can't be loaded (for example it's locked by another program, has an unexpected encoding, or isn't a list of assignments), a copy is saved as `assignments.json.corrupted.<timestamp>`, the app shows an error, and it **won't save any changes** until the problem is fixed and the app is restarted, so your real file is never overwritten with an empty list.
+*   If the chat history file is unreadable, it's backed up the same way (`persistent_chat_log.json.corrupted.<timestamp>`) and a new history is started.
 *   **Important**: This `data/` directory is included in `.gitignore` to prevent accidental committing of personal data.
 
 License
