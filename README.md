@@ -3,6 +3,8 @@ Homework Tracker with Chatbot Assistant
 
 A comprehensive homework tracking application with an integrated, locally-run Chatbot Assistant to help you manage your academic workload effectively.
 
+![Homework Tracker dashboard in dark mode, showing assignments due over the next week grouped by day](docs/screenshot.png)
+
 Features
 --------
 1.  **Modern GUI Interface**:
