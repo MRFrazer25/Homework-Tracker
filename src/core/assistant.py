@@ -1,10 +1,13 @@
 """LLM assistant: a LangChain agent backed by a local Hugging Face model that can change assignments."""
 
+import re
+import uuid
+
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
-from src.core.assistant_tools import AssistantTools
+from src.core.assistant_tools import ACTION_WORDS, UNDO_WORDS, AssistantTools
 from src.core.local_chat_model import LocalChatModel
 from src.utils.settings_manager import DEFAULT_ASSISTANT_MODEL, DEFAULT_ASSISTANT_REVISION
 
@@ -22,6 +25,8 @@ SYSTEM_PROMPT = (
 HISTORY_EXCHANGES = 2
 # Cap on agent graph steps per request (each model call and tool round is a couple of steps)
 MAX_AGENT_STEPS = 8
+# Requests to see the list rather than change it ("show me what's due friday")
+LISTING_REQUEST = re.compile(r"^\s*(show|list|see|view|display|tell me|give me)\b", re.IGNORECASE)
 
 
 class Assistant:
@@ -56,6 +61,27 @@ class Assistant:
             return list(self.history)
         return self.history[starts[-HISTORY_EXCHANGES]:]
 
+    def _asks_for_change(self):
+        """Whether the message clearly asks to change an existing assignment (not a question or a request to look)."""
+        said = self.tools.user_message
+        if self.tools._refuse_change() or LISTING_REQUEST.match(said):
+            return False
+        return bool(UNDO_WORDS.search(said)) or any(
+            ACTION_WORDS[kind].search(said) for kind in ("complete", "reschedule", "rename", "delete"))
+
+    @staticmethod
+    def _tried_a_change(new_messages):
+        """Whether the model called any tool other than listing the assignments."""
+        return any(isinstance(m, ToolMessage) and m.name != "list_assignments" for m in new_messages)
+
+    def _listing_messages(self):
+        """A list_assignments call and its result, as if the model had looked the assignments up itself."""
+        list_tool = next(t for t in self.tool_list if t.name == "list_assignments")
+        args = {"only_incomplete": False}
+        call_id = f"call_{uuid.uuid4().hex[:12]}"
+        return [AIMessage("", tool_calls=[{"name": list_tool.name, "args": args, "id": call_id, "type": "tool_call"}]),
+                ToolMessage(list_tool.invoke(args), tool_call_id=call_id, name=list_tool.name)]
+
     def respond(self, user_input):
         """
         Runs one request through the agent.
@@ -71,11 +97,17 @@ class Assistant:
         messages = self._recent_history() + [HumanMessage(user_input)]
         try:
             result = self.agent.invoke({"messages": messages}, {"recursion_limit": MAX_AGENT_STEPS})
+            new_messages = result["messages"][len(messages):]
+            if self._asks_for_change() and not self._tried_a_change(new_messages):
+                # With no earlier messages the model doesn't know the assignment names, so it sometimes lists them
+                # or asks which one instead of making the change. Show it the list and let it try once more.
+                messages = messages + self._listing_messages()
+                result = self.agent.invoke({"messages": messages}, {"recursion_limit": MAX_AGENT_STEPS})
+                new_messages = result["messages"][len(messages):]
         except GraphRecursionError:
             # The model kept calling tools without finishing; keep the history as it was
             self.last_used_tools = False
             return "Sorry, I got stuck on that one. Could you try rephrasing it?", self.tools.data_changed
-        new_messages = result["messages"][len(messages):]
 
         # Tools return their result directly; join the successful ones in order. Tool errors (an unknown tool or
         # bad arguments) are for the model, not the user, so fall back to the model's text or a plain apology.

@@ -61,6 +61,31 @@ def test_multiple_tool_calls_in_one_request(manager):
     assert lab['due_date'] == datetime(2026, 10, 10, 23, 59)
 
 
+@pytest.mark.parametrize("first_reply", [
+    AIMessage("", tool_calls=[call("list_assignments")]),  # Looked the names up instead of moving it
+    AIMessage("I'm not sure which assignment you mean. What's it called?"),  # Asked instead of moving it
+])
+def test_first_change_request_gets_the_list_and_a_second_try(manager, first_reply):
+    # Real miss: "push my essay to next monday" as the first message listed assignments or asked which one
+    assistant, model = make_assistant(manager, [
+        first_reply,
+        AIMessage("", tool_calls=[call("reschedule", assignment_name="lab report", new_due_date="oct 10")]),
+    ])
+    reply, changed = assistant.respond("push my lab to oct 10")
+    assert (reply, changed) == ("Moved 'lab report' to Sat Oct 10.", True)
+    second_prompt = model.seen[1]
+    assert "Here's what you have" not in reply
+    assert any("hw #1" in str(m.content) and "lab report" in str(m.content) for m in second_prompt)
+
+
+@pytest.mark.parametrize("message", ["what's due oct 10?", "show me what's due oct 10", "list my assignments"])
+def test_looking_at_the_list_is_not_retried(manager, message):
+    assistant, model = make_assistant(manager, [AIMessage("", tool_calls=[call("list_assignments")])])
+    reply, changed = assistant.respond(message)
+    assert reply.startswith("Here's what you have") and not changed
+    assert len(model.seen) == 1
+
+
 def test_plain_chat_reply_changes_nothing(manager):
     assistant, _ = make_assistant(manager, [AIMessage("You're welcome!")])
     assert assistant.respond("thanks") == ("You're welcome!", False)

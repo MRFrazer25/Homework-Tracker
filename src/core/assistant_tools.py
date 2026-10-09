@@ -293,6 +293,13 @@ class AssistantTools:
             if not self._asked_for("add"):
                 return "Did you want me to add a new assignment? If so, say something like 'add a math quiz due friday'."
             if ACTION_WORDS["reschedule"].search(self.user_message) and not EXPLICIT_ADD.search(self.user_message):
+                # The model sometimes adds what the user asked to move ("push my essay to monday" -> a new "essay").
+                # If the name fits exactly one existing assignment and the message has one date, move that instead.
+                dates = find_date_phrases(self.user_message)
+                if len(dates) == 1:
+                    assignment, error = self.find_assignment(name)
+                    if not error:
+                        return self._reschedule(assignment['name'], dates[0])
                 return ("Did you want to move an existing assignment? Try something like 'move the essay to friday', "
                         "or say 'add' if it's a new one.")
             existing = self._existing_assignments_named(name)

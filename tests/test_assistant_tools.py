@@ -361,6 +361,15 @@ def test_move_request_never_adds(tools, helper, manager):
     assert tools["add_assignment"].invoke({"name": "New essay", "class_name": "English", "due_date": "friday"}).startswith("Added")
 
 
+def test_move_request_the_model_tried_to_add_moves_the_one_match(tools, helper, manager):
+    # Real miss: "push my essay to next monday" as a first message became add_assignment("essay")
+    helper.user_message = "push my science project to oct 20"
+    reply = tools["add_assignment"].invoke({"name": "science project", "class_name": "Science", "due_date": "oct 20"})
+    assert reply == "Moved 'Science project' to Tue Oct 20."
+    assert len(manager.get_assignments()) == 4
+    assert by_name(manager, "Science project")['due_date'] == datetime(2026, 10, 20, 23, 59)
+
+
 # --- Rename, change class, delete ---
 
 @pytest.mark.parametrize("message, model_new_name, expected", [
