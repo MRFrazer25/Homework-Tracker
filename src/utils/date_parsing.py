@@ -23,13 +23,29 @@ _DATE_PHRASE = re.compile(
     rf"|(?:next |this )?(?:{_WEEKDAY_PATTERN})"
     rf"|(?:{_MONTH_PATTERN}) \d{{1,2}}(?:st|nd|rd|th)?"
     rf"|\d{{1,2}}(?:st|nd|rd|th)? (?:of )?(?:{_MONTH_PATTERN})"
-    rf"|\d{{4}}-\d{{1,2}}-\d{{1,2}}|\d{{1,2}}/\d{{1,2}}(?:/\d{{2,4}})?)\b",
+    rf"|\d{{4}}-\d{{1,2}}-\d{{1,2}}|\d{{1,2}}/\d{{1,2}}(?:/\d{{2,4}})?"
+    rf"|the \d{{1,2}}(?:st|nd|rd|th))\b",
     re.IGNORECASE)
+
+# Weekday abbreviations are also ordinary words ("I sat the exam", "the SAT"), so on their own they only
+# count as dates after a word that introduces a date ("due fri", "move it to sat")
+_DATE_LEAD_WORDS = {"on", "by", "due", "until", "till", "til", "for", "to", "before", "after", "from", "next", "this"}
+
+# Within this many days in the past, a month/day without a year means this year ("it was due oct 1")
+RECENT_PAST_DAYS = 14
 
 
 def find_date_phrases(text):
     """Returns the date phrases in a message, e.g. "push it to next friday" -> ["next friday"]."""
-    return [m.group(0) for m in _DATE_PHRASE.finditer(text or "")]
+    phrases = []
+    for match in _DATE_PHRASE.finditer(text or ""):
+        phrase = match.group(0)
+        if phrase.lower() in WEEKDAY_ALIASES:
+            preceding = re.findall(r"[a-z]+", text[:match.start()].lower())
+            if not preceding or preceding[-1] not in _DATE_LEAD_WORDS:
+                continue
+        phrases.append(phrase)
+    return phrases
 
 
 def _weekday_index(word):
@@ -47,9 +63,12 @@ def _safe_date(year, month, day):
 
 
 def _upcoming(year, month, day, today):
-    """A month/day with no year means the next time that date comes around."""
+    """
+    A month/day with no year means the next time that date comes around, unless it was within the last
+    couple of weeks ("it was due oct 1" said on Oct 2 means this year, not next).
+    """
     candidate = _safe_date(year, month, day)
-    if candidate and candidate < today:
+    if candidate and candidate < today - timedelta(days=RECENT_PAST_DAYS):
         candidate = _safe_date(year + 1, month, day)
     return candidate
 
@@ -76,6 +95,15 @@ def parse_date(text, today=None):
         return None
 
     s = text.strip().lower()
+
+    # "the 10th": that day this month, or next month if it has already passed
+    match = re.fullmatch(r"(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)", s)
+    if match:
+        day = int(match.group(1))
+        year, month = (today.year, today.month) if day >= today.day else (
+            (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1))
+        return _safe_date(year, month, day)
+
     s = re.sub(r"[,]", " ", s)
     s = re.sub(r"\b(due|by|on|the|this|of|at|end of day|eod)\b", " ", s)
     s = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", s)

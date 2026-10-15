@@ -3,7 +3,7 @@ import re
 import threading
 from datetime import datetime
 from src.utils.paths import DATA_DIR
-from src.utils.helpers import PRIORITY_RANK, ALLOWED_PRIORITIES
+from src.utils.helpers import ALLOWED_PRIORITIES
 from src.utils.json_files import back_up_file, write_json_atomic
 
 # Define the path for the persistent chat log (read by the chat history dialog)
@@ -309,12 +309,8 @@ class Chatbot:
         else:
             response_parts.append("Your workload seems manageable right now.")
 
-        # Tailor tips to the most pressing assignment: highest priority first, then earliest due date.
-        focus = min(
-            active_assignments,
-            key=lambda a: (-PRIORITY_RANK.get(a.get('priority'), 0),
-                           a['due_date'] if isinstance(a.get('due_date'), datetime) else datetime.max)
-        )
+        # Tailor tips to the most pressing assignment
+        focus = self.study_tips_generator.most_pressing(active_assignments)
         tips = self.study_tips_generator.get_enhanced_study_tips(active_assignments, focus)
         response_parts.append(f"Tips for '{focus.get('name', 'your next assignment')}':\n" +
                               "\n".join(f"- {tip}" for tip in tips[:4]))

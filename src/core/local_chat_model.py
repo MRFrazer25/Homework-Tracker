@@ -53,11 +53,13 @@ class LocalChatModel(BaseChatModel):
 
     model_id: str
     revision: Optional[str] = None  # Commit to load; pinning it means an upstream change can't alter the model
-    max_new_tokens: int = 200
+    # Room for several tool calls in one reply (about 25-60 tokens each); generation stops early when done
+    max_new_tokens: int = 400
 
     _tokenizer: Any = PrivateAttr(default=None)
     _model: Any = PrivateAttr(default=None)
     _prefix_cache: Any = PrivateAttr(default=None)  # (prefix_text, prefix_token_ids, past_key_values)
+    _prefix_key: Any = PrivateAttr(default=None)  # System prompt + tools the cached prefix was built from
     _lock: Any = PrivateAttr(default_factory=threading.Lock)
 
     @property
@@ -122,11 +124,16 @@ class LocalChatModel(BaseChatModel):
         and tool schemas). Found by rendering two different user turns and taking the common start.
         """
         system = [m for m in template_messages if m["role"] == "system"][:1]
+        # The prefix only depends on the system prompt and tool schemas, so skip re-rendering when those match
+        key = json.dumps([system, tools], sort_keys=True, default=str)
+        if self._prefix_cache and self._prefix_key == key:
+            return self._prefix_cache[1:]
         probe_a = self._render(system + [{"role": "user", "content": "a"}], tools)
         probe_b = self._render(system + [{"role": "user", "content": "b"}], tools)
         length = next((i for i, (x, y) in enumerate(zip(probe_a, probe_b)) if x != y), 0)
         # Back off to a line boundary so the prefix tokenizes the same way inside the full prompt
         prefix_text = probe_a[:probe_a.rfind("\n", 0, length) + 1]
+        self._prefix_key = key
 
         if self._prefix_cache and self._prefix_cache[0] == prefix_text:
             return self._prefix_cache[1:]
@@ -164,6 +171,8 @@ class LocalChatModel(BaseChatModel):
         text, calls = parse_tool_calls(raw)
         if not calls:
             text = self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+            # An unparseable tool call (e.g. cut off by the token limit) is model syntax, not a reply for the user
+            text = text.split("<tool_call>", 1)[0].strip()
         tool_calls = [{"name": name, "args": args, "id": f"call_{uuid.uuid4().hex[:12]}", "type": "tool_call"}
                       for name, args in calls]
         message = AIMessage(content=text, tool_calls=tool_calls,

@@ -145,3 +145,6 @@ data/
 secrets.py
 *.credential*
 credentials/
+
+# Local-only evaluation scripts (not published)
+evals/

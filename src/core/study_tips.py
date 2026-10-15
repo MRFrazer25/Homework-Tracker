@@ -6,6 +6,12 @@ class StudyTipsGenerator:
     """Generates intelligent study tips and suggestions based on assignments and workload."""
 
     @staticmethod
+    def most_pressing(assignments):
+        """The assignment to focus on first: highest priority, then earliest due date."""
+        return min(assignments, key=lambda a: (-PRIORITY_RANK.get(a.get('priority'), 0),
+                                               a['due_date'] if isinstance(a.get('due_date'), datetime) else datetime.max))
+
+    @staticmethod
     def get_enhanced_study_tips(assignments, current_assignment):
         """
         Generate personalized study tips based on the current assignment and overall workload.

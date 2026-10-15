@@ -43,7 +43,6 @@ Everything runs **locally** on your machine with no API keys or cloud calls; an 
     *   Questions ("is X done?") and bulk requests ("mark everything done") never change data.
     *   Deleting needs a "yes" in the very next message, checked in code rather than by the model; any other reply cancels it.
     *   Listings are filtered by what the user asked about ("today", "this week", "overdue", "chem").
-*   **Tested**: Beyond the unit tests, the agent was run against about 90 varied, scored requests with the real model.
 
 **Supporting models and fallbacks**
 *   **Emotion Detection**: [`SamLowe/roberta-base-go_emotions`](https://huggingface.co/SamLowe/roberta-base-go_emotions) (MIT, trained on Google's GoEmotions dataset) adds an empathetic touch when a feeling is clearly expressed ("I'm so stressed", "finally finished it!").

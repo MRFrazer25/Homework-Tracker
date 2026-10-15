@@ -479,3 +479,40 @@ def test_no_redirect_when_the_request_is_unclear(tools, helper, manager):
     helper.user_message = "finished the science project, push it to friday"  # Two requests: don't guess
     reply = tools["rename_assignment"].invoke({"assignment_name": "Science project", "new_name": "x"})
     assert reply.startswith("I'm not sure") and not helper.data_changed
+
+
+@pytest.mark.parametrize("new_name", ["hw #2", "Essay draft 2", "Science project part 2"])
+def test_numbered_series_are_not_duplicates(tools, helper, manager, new_name):
+    # Seen in review: "Calc problem set 5" was refused as a duplicate of "Calc problem set 4"
+    manager.add_assignment({'name': "Essay draft 1", 'class': "English", 'due_date': datetime(2026, 10, 6, 23, 59),
+                            'priority': "Medium", 'difficulty': 5})
+    helper.user_message = f"add {new_name} due friday"
+    assert tools["add_assignment"].invoke({"name": new_name, "class_name": "X", "due_date": "friday"}).startswith("Added")
+
+
+def test_near_identical_name_is_still_a_duplicate(tools, helper, manager):
+    helper.user_message = "add essay drafts due friday"
+    assert "already have 'Essay draft'" in tools["add_assignment"].invoke(
+        {"name": "Essay drafts", "class_name": "English", "due_date": "friday"})
+
+
+@pytest.mark.parametrize("message, model_difficulty, expected", [
+    ("add a quiz due friday", 0, 5),  # Not mentioned: the model's guess is ignored
+    ("add a quiz due friday", 12, 5),
+    ("add a really hard quiz due friday", 12, 10),  # Mentioned: used, but kept in range
+    ("add a quiz due friday, difficulty 7/10", 7, 7),
+])
+def test_difficulty_is_grounded_and_clamped(tools, helper, manager, message, model_difficulty, expected):
+    helper.user_message = message
+    reply = tools["add_assignment"].invoke({"name": "Quiz", "class_name": "Math", "due_date": "friday",
+                                            "difficulty": model_difficulty})
+    assert reply.startswith("Added")
+    assert by_name(manager, "Quiz")['difficulty'] == expected
+
+
+def test_already_done_is_not_a_change(tools, helper, manager):
+    helper.user_message = "I finished the science project"
+    tools["mark_complete"].invoke({"assignment_name": "Science project"})
+    helper.data_changed = False
+    assert tools["mark_complete"].invoke({"assignment_name": "Science project"}) == "'Science project' is already marked as done."
+    assert not helper.data_changed

@@ -8,7 +8,7 @@ from langchain_core.tools import tool
 
 from src.core.data_handler import DUE_TIME
 from src.utils.date_parsing import find_date_phrases, parse_date
-from src.utils.helpers import ALLOWED_PRIORITIES, PRIORITY_RANK
+from src.utils.helpers import ALLOWED_PRIORITIES
 
 
 # Words that say nothing about which assignment is meant
@@ -53,6 +53,18 @@ CLARIFY = ("I'm not sure what you'd like me to do with '{name}'. I can mark it d
 CONFIRM_YES = re.compile(r"\s*(yes|yeah|yep|yup|y|sure|confirm|do it|delete it|go ahead)\s*[.!]*\s*(please)?\s*[.!]*\s*",
                          re.IGNORECASE)
 CONFIRM_NO = re.compile(r"\s*(no|nope|nah|n|cancel|don'?t|stop|never ?mind|wait|keep it)\b.*", re.IGNORECASE)
+
+
+# Users rarely rate difficulty; only use the model's number when they did, and keep it in range
+DIFFICULTY_WORDS = re.compile(r"\b(difficult\w*|hard|harder|easy|easier|tough|simple|\d+\s*(/|out of)\s*10)\b", re.IGNORECASE)
+
+
+def _usable_difficulty(value):
+    """Clamps a model-supplied difficulty to 1-10, falling back to 5 if it isn't a number."""
+    try:
+        return min(10, max(1, int(value)))
+    except (TypeError, ValueError):
+        return 5
 
 
 def _format_due(due):
@@ -229,6 +241,9 @@ class AssistantTools:
         assignments = self.assignment_manager.get_assignments()
         names = sorted({(a.get('name') or "").lower() for a in assignments})
         close = [query] if query in names else difflib.get_close_matches(query, names, n=1, cutoff=0.85)
+        # Numbered series ("problem set 4" vs "problem set 5") look nearly identical but are different assignments
+        if close and re.findall(r"\d+", close[0]) != re.findall(r"\d+", query):
+            close = []
         return [a for a in assignments if close and (a.get('name') or "").lower() == close[0]]
 
     def _resolve_due(self, text):
@@ -308,6 +323,7 @@ class AssistantTools:
                         f"Did you want to move it instead? Try 'move {existing[0]['name']} to friday'.")
             if not ACTION_WORDS["priority"].search(self.user_message):
                 priority = "Medium"  # The model sometimes invents a priority the user never mentioned
+            difficulty = _usable_difficulty(difficulty) if DIFFICULTY_WORDS.search(self.user_message) else 5
             due = self._resolve_due(due_date)
             if not due:
                 return f"I couldn't understand the date '{due_date}'. Try something like 'friday' or 'oct 10'."
@@ -450,8 +466,7 @@ class AssistantTools:
             active = [a for a in self.assignment_manager.get_assignments() if not a.get('completed')]
             if not active:
                 return "You're all caught up, enjoy the free time!"
-            focus = min(active, key=lambda a: (-PRIORITY_RANK.get(a.get('priority'), 0),
-                                               a['due_date'] if isinstance(a.get('due_date'), datetime) else datetime.max))
+            focus = self.study_tips_generator.most_pressing(active)
             tips = self.study_tips_generator.get_enhanced_study_tips(active, focus)
             return f"Tips for '{focus['name']}':\n" + "\n".join(f"- {t}" for t in tips[:5])
 
@@ -538,8 +553,11 @@ class AssistantTools:
         assignment, error = self.find_assignment(assignment_name)
         if error:
             return error
+        state = 'done' if completed else 'not done'
+        if bool(assignment.get('completed')) == completed:
+            return f"'{assignment['name']}' is already marked as {state}."
         ok, message = self.assignment_manager.set_completion(assignment['id'], completed)
         if not ok:
             return message
         self.data_changed = True
-        return f"Marked '{assignment['name']}' as {'done' if completed else 'not done'}."
+        return f"Marked '{assignment['name']}' as {state}."

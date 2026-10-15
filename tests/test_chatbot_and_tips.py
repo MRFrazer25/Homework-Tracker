@@ -208,3 +208,8 @@ def test_small_talk_cancels_a_pending_delete(tmp_path, monkeypatch):
     bot.assistant.respond = lambda text: ("(agent reply)", False)
     bot.get_response("yes")  # ...so a later "yes" deletes nothing
     assert len(manager.get_assignments()) == 1
+
+
+def test_most_pressing_prefers_priority_then_due_date(assignments):
+    assert StudyTipsGenerator.most_pressing(assignments)['name'] == "Urgent thing"
+    assert StudyTipsGenerator.most_pressing([assignments[0], assignments[2]])['name'] == "Due today"
