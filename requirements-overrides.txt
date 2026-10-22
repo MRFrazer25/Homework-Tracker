@@ -1,0 +1,7 @@
+# Install after requirements.txt: pip install -r requirements-overrides.txt
+#
+# ttkbootstrap 2.2.3 (the latest release) still caps pillow<13, but Pillow 13.0.0 fixes dozens of
+# CVEs, including two critical ones. The tests, every ttkbootstrap theme and the app itself run on
+# Pillow 13. Installing it as a second step makes pip print a conflict notice about ttkbootstrap's
+# cap, which is expected. Remove this file once ttkbootstrap allows Pillow 13.
+pillow==13.0.0

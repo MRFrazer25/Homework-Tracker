@@ -59,8 +59,10 @@ Installation
     ```bash
     python -m venv .venv
     .venv\Scripts\activate   # macOS/Linux: source .venv/bin/activate
-    pip install --upgrade -r requirements.txt
+    pip install -r requirements.txt
+    pip install -r requirements-overrides.txt
     ```
+    The second command installs Pillow 13, which fixes security issues that the current ttkbootstrap release doesn't allow yet. pip prints a notice about ttkbootstrap's version cap; that's expected.
 5.  The first launch downloads the models (about 4 GB), so the assistant takes a few minutes to become ready the first time.
 
 Usage
@@ -81,6 +83,7 @@ Running Tests
 -------------
 ```bash
 pip install -r requirements-dev.txt
+pip install -r requirements-overrides.txt
 python -m pytest
 ```
 
