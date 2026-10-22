@@ -1,7 +1,8 @@
-ttkbootstrap
-matplotlib
-transformers
-torch
-langchain
-langchain-core
-langgraph
+# Exact versions. Dependabot proposes updates weekly, once a release is 7 days old (.github/dependabot.yml).
+ttkbootstrap==2.2.3
+matplotlib==3.11.2
+transformers==5.19.0
+torch==2.14.1
+langchain==1.4.6
+langchain-core==1.6.10
+langgraph==1.2.15
