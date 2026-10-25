@@ -1,6 +1,9 @@
 Homework Tracker with Chatbot Assistant
 ==================================
 
+[![Tests](https://github.com/MRFrazer25/Homework-Tracker/actions/workflows/tests.yml/badge.svg)](https://github.com/MRFrazer25/Homework-Tracker/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/MRFrazer25/Homework-Tracker/blob/main/LICENSE)
+
 A comprehensive homework tracking application with an integrated, locally-run Chatbot Assistant to help you manage your academic workload effectively.
 
 ![Homework Tracker dashboard in dark mode, showing assignments due over the next week grouped by day](docs/screenshot.png)
