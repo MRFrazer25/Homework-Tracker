@@ -1,8 +1,8 @@
 # Exact versions. Dependabot proposes updates weekly, once a release is 7 days old (.github/dependabot.yml).
-ttkbootstrap==2.2.6
+ttkbootstrap==2.2.7
 matplotlib==3.11.2
-transformers==5.22.1
+transformers==5.22.2
 torch==2.15.0
-langchain==1.4.7
-langchain-core==1.7.3
-langgraph==1.2.18
+langchain==1.4.9
+langchain-core==1.7.6
+langgraph==1.2.20
