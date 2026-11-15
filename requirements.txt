@@ -1,5 +1,7 @@
 # Exact versions. Dependabot proposes updates weekly, once a release is 7 days old (.github/dependabot.yml).
 ttkbootstrap==2.2.7
+# Pulled in by ttkbootstrap and matplotlib; pinned for its security fixes
+pillow==13.0.0
 matplotlib==3.11.2
 transformers==5.22.2
 torch==2.15.0
