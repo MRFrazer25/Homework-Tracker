@@ -3,8 +3,8 @@ ttkbootstrap==2.2.7
 # Pulled in by ttkbootstrap and matplotlib; pinned for its security fixes
 pillow==13.0.0
 matplotlib==3.11.2
-transformers==5.22.2
+transformers==5.23.0
 torch==2.15.0
-langchain==1.4.9
-langchain-core==1.7.6
-langgraph==1.2.20
+langchain==1.5.0
+langchain-core==1.8.0
+langgraph==1.2.21
