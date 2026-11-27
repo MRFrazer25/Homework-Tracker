@@ -5,6 +5,6 @@ pillow==13.0.0
 matplotlib==3.11.2
 transformers==5.23.0
 torch==2.15.0
-langchain==1.5.0
-langchain-core==1.8.0
-langgraph==1.2.21
+langchain==1.5.2
+langchain-core==1.8.4
+langgraph==1.2.24
